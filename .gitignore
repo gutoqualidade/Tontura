@@ -1,0 +1,6 @@
+src/t27/target/
+src/rust/target/
+src/lean/.lake/
+src/haskell/dist-newstyle/
+experiments/phase3/__pycache__/
+*.pyc
