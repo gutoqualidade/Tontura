@@ -1,0 +1,1250 @@
+; ============================================================
+; TENERURA — micronúcleo v1 para a máquina T27
+; docs/08-micronucleo.md
+;
+; O que fica NO núcleo (e só isto): espaços de endereços, tarefas,
+; escalonamento por fatia de tempo, IPC síncrono por registradores,
+; encaminhamento de interrupções e contenção de falhas (morte, aviso ao
+; supervisor, reinício). Nada de drivers, nomes, arquivos ou política:
+; QUANDO reiniciar é decisão de uma tarefa supervisora; o núcleo só
+; oferece o mecanismo, sob capacidade.
+;
+; Estrutura: núcleo de EVENTOS, não preemptível, com uma única pilha.
+; Cada trap salva o contexto do usuário no TCB, trata o evento até o fim
+; e retoma alguma tarefa. Nenhum estado do núcleo sobrevive na pilha
+; entre traps; bloquear = mudar o estado no TCB e escalonar.
+;
+; O núcleo roda em endereçamento FÍSICO. A interface de chamadas é só de
+; registradores: o núcleo nunca segue um ponteiro vindo do usuário. Ele
+; só escreve em quadros de usuário ao (re)construir um espaço de
+; endereços — no boot e no reinício de uma tarefa.
+;
+; Convenções internas: s1 = TCB da tarefa corrente (ponteiro para o CENTRO
+; do TCB). Nos tratadores, s2..s11 estão livres (o contexto do usuário já
+; foi salvo). Funções não-folha preservam os s que usam; funções-folha
+; usam só a1..a4/t1..t4 e não tocam a pilha.
+; ============================================================
+
+    .include "../lib/abi.inc"
+
+; ── plataforma ──
+    .equ DEV_CONSOLE,  14348907     ; 3^15
+    .equ DEV_POWER,    14349636     ; 3^15 + 729
+    .equ PAGE_SIZE,    729
+    .equ PAGE_HALF,    364
+    .equ PTE_TABLE,    -1
+    .equ PTE_RX,       10           ; folha + execução
+    .equ PTE_RW,       4            ; folha + escrita
+    .equ ST_USER_RET,  28           ; STATUS: núcleo(1) + PIE(27), PMODE = usuário
+    .equ IRQ_TIMER,    1
+    .equ MAX_IRQ,      27
+
+; ── política ──
+    .equ QUANTUM_DEFAULT, 5000      ; fatia de tempo, em passos de máquina
+    .equ QUANTUM_MIN,  200          ; abaixo disto a tarefa não progride entre traps
+    .equ SLEEP_MAX,    3486784401   ; 3^20: teto de qualquer prazo (mantém prazos a
+                                    ; menos de meia janela do relógio modular)
+
+; ── TCB: 81 palavras, ponteiro no CENTRO ──
+; deslocamentos −13..+13 = registradores salvos (deslocamento = número do
+; registrador); o lugar de zr (0) guarda o PC.
+    .equ MAX_TASKS,    9
+    .equ TCB_SIZE,     81
+    .equ TCB_SHIFT,    4            ; 81 = 3^4
+    .equ T_PC,         0
+    .equ T_STATE,      14
+    .equ T_PTROOT,     15
+    .equ T_EP,         16           ; endpoint em que espera (ou do aviso de morte)
+    .equ T_SEQ,        17           ; carimbo: ordem de chegada e recibo de resposta
+    .equ T_PEER,       18           ; BLK_REPLY: TCB do servidor aguardado
+    .equ T_TIMED,      19           ; 1 = a espera tem prazo (T_DEADLINE)
+    .equ T_FCAUSE,     20           ; morta: causa (0 = exit voluntário)
+    .equ T_FVAL,       21           ; morta: tval da falha
+    .equ T_DEADLINE,   22
+    .equ T_ID,         23
+    .equ T_SENDKIND,   24           ; bloqueada em envio: 1 = send, 2 = call
+    .equ T_BADGE,      25           ; selo que acompanha o envio pendente
+    .equ T_EXIT,       26           ; código de saída
+    .equ T_FEP,        27           ; endpoint de aviso de morte (0 = nenhum)
+    .equ T_FBADGE,     28           ; selo do aviso de morte
+    .equ T_IRQ,        29           ; linha de interrupção atendida (0 = nenhuma)
+    .equ T_IRQEP,      30           ; endpoint onde a interrupção chega como mensagem
+    .equ T_IRQBADGE,   31
+    .equ T_IRQPEND,    32           ; 1 = interrupção aguardando o próximo recv
+    .equ T_GEN,        33           ; geração: quantas vezes foi reiniciada
+    .equ T_CAPS,       -40          ; 9 capacidades × 3 palavras (−40..−14)
+    .equ CAP_KIND,     0
+    .equ CAP_OBJ,      1
+    .equ CAP_BADGE,    2
+
+; estados — o sinal separa quem pode rodar (+) de quem espera ou morreu (−)
+    .equ ST_READY,     1            ; pronta ou executando
+    .equ ST_FREE,      0            ; slot vazio
+    .equ ST_BLK_SEND,  -1
+    .equ ST_BLK_RECV,  -2
+    .equ ST_BLK_REPLY, -3
+    .equ ST_SLEEP,     -4
+    .equ ST_ZOMBIE,    -5           ; morta, com aviso de morte ainda não entregue
+    .equ ST_DEAD,      -9           ; morta
+
+    .equ CAUSE_KILLED, -9           ; pseudocausa: morta por quem tinha a capacidade
+
+; ── tabela de boot (preenchida pelo construtor de imagem) ──
+    .equ BOOT_MAGIC,   19683028     ; 3^9·1000 + 28 (formato v1)
+    .equ BT_MAGIC,     0
+    .equ BT_NTASKS,    1
+    .equ BT_FREE,      2            ; centro do primeiro quadro livre
+    .equ BT_QUANTUM,   3            ; fatia de tempo (0 = padrão)
+    .equ BT_TASKS,     4
+    .equ BE_SIZE,      42           ; palavras por tarefa
+    .equ BE_TEXT_PHYS, 0
+    .equ BE_TEXT_LEN,  1
+    .equ BE_TEXT_VBASE, 2
+    .equ BE_DATA_PHYS, 3
+    .equ BE_DATA_LEN,  4
+    .equ BE_DATA_VBASE, 5
+    .equ BE_ENTRY,     6
+    .equ BE_STACK_PAGES, 7
+    .equ BE_FAULT_EP,  8
+    .equ BE_FAULT_BADGE, 9
+    .equ BE_IRQ_LINE,  10
+    .equ BE_IRQ_EP,    11
+    .equ BE_IRQ_BADGE, 12
+    .equ BE_DEV_PHYS,  13           ; centro da página de dispositivo concedida (0 = nenhuma)
+    .equ BE_DEV_VPN,   14           ; página virtual onde ela aparece
+    .equ BE_CAPS,      15           ; 27 palavras
+
+; códigos de pânico (a máquina desliga com −código)
+    .equ PANIC_NESTED, 1            ; trap com origem no próprio núcleo
+    .equ PANIC_BOOT,   2            ; tabela de boot inválida
+    .equ PANIC_OOM,    3            ; faltou quadro físico
+
+    .equ TCB_FIRST,    tcbs + 40
+    .equ TCB_LIMIT,    tcbs + 40 + TCB_SIZE * MAX_TASKS
+
+; ============================================================
+; boot — endereço físico 0 (vetor de reset); pilha do núcleo desce de 0
+; ============================================================
+    .org 0
+_start:
+    li sp, 0
+    la t1, trap_entry
+    csrw tvec, t1
+    la t1, boot_tcb + 40            ; área de salvamento válida antes da 1ª tarefa
+    csrw scratch, t1
+    la t1, ram_half
+    st a1, 0(t1)                    ; protocolo de boot: a1 = meia-extensão da RAM
+
+    la s2, boot_table
+    ld t1, BT_MAGIC(s2)
+    la t2, BOOT_MAGIC
+    bne t1, t2, panic_boot
+    ld t1, BT_FREE(s2)
+    la t2, free_next
+    st t1, 0(t2)
+    ld t1, BT_QUANTUM(s2)           ; fatia configurável (testes variam o entrelaçamento)
+    bnz t1, 2f
+    li t1, QUANTUM_DEFAULT
+2:  li t2, QUANTUM_MIN
+    blt t1, t2, panic_boot
+    la t2, quantum
+    st t1, 0(t2)
+    ld s3, BT_NTASKS(s2)
+    bnp s3, panic_boot
+    li t1, MAX_TASKS
+    bgt s3, t1, panic_boot
+    la t1, ntasks
+    st s3, 0(t1)
+
+    li t1, 1                        ; máscara: por ora só o timer
+    la t2, imask_shadow
+    st t1, 0(t2)
+    csrw imask, t1
+
+    li s4, 0
+1:  mov a1, s4
+    call init_task
+    addi s4, s4, 1
+    blt s4, s3, 1b
+
+    ; "última escolhida" = último slot ⇒ a primeira a rodar é a tarefa 0
+    la t1, TCB_LIMIT - TCB_SIZE
+    la t2, last
+    st t1, 0(t2)
+    j schedule
+
+; ── init_task: a1 = índice. (Re)constrói a tarefa a partir da imagem
+;    original guardada nos módulos de boot: serve ao boot e ao reinício.
+;    No reinício os quadros já mapeados são reaproveitados (e zerados). ──
+init_task:
+    push lr
+    push s5
+    push s6
+    push s7
+    push s8
+    push s9
+    shi t1, a1, TCB_SHIFT
+    la s5, TCB_FIRST
+    add s5, s5, t1                  ; s5 = TCB
+    li t1, BE_SIZE
+    mul t1, t1, a1
+    la s6, boot_table + BT_TASKS
+    add s6, s6, t1                  ; s6 = entrada na tabela de boot
+    st a1, T_ID(s5)
+
+    ld s7, T_PTROOT(s5)             ; s7 = tabela raiz (nova no boot)
+    bnz s7, 1f
+    call alloc_frame
+    mov s7, a1
+    st s7, T_PTROOT(s5)
+
+1:  mov a1, s7
+    ld a2, BE_TEXT_PHYS(s6)
+    ld a3, BE_TEXT_LEN(s6)
+    ld a4, BE_TEXT_VBASE(s6)
+    li a5, PTE_RX
+    call load_segment
+    mov a1, s7
+    ld a2, BE_DATA_PHYS(s6)
+    ld a3, BE_DATA_LEN(s6)
+    ld a4, BE_DATA_VBASE(s6)
+    li a5, PTE_RW
+    call load_segment
+
+    ; pilha: páginas −1, −2, ... (a página 0 fica sem mapear: guarda de nulo)
+    ld s8, BE_STACK_PAGES(s6)
+    li s9, -1
+2:  bnp s8, 3f
+    mov a1, s7
+    mov a2, s9
+    li a3, PTE_RW
+    call ensure_page
+    addi s9, s9, -1
+    addi s8, s8, -1
+    j 2b
+
+3:  ld a3, BE_DEV_PHYS(s6)          ; página de dispositivo concedida ao driver
+    bz a3, 4f
+    mov a1, s7
+    ld a2, BE_DEV_VPN(s6)
+    li a4, PTE_RW
+    call map_page
+4:  tlbi
+
+    ; contexto inicial: todos os registradores zero, salvo o sp
+    addi t1, s5, -13
+    addi t2, s5, 13
+5:  st zr, 0(t1)
+    addi t1, t1, 1
+    ble t1, t2, 5b
+    ld t1, BE_ENTRY(s6)
+    st t1, T_PC(s5)
+    li t1, USER_SP
+    st t1, -13(s5)
+    st zr, T_EP(s5)
+    st zr, T_SEQ(s5)
+    st zr, T_PEER(s5)
+    st zr, T_TIMED(s5)
+    st zr, T_FCAUSE(s5)
+    st zr, T_FVAL(s5)
+    st zr, T_DEADLINE(s5)
+    st zr, T_SENDKIND(s5)
+    st zr, T_BADGE(s5)
+    st zr, T_EXIT(s5)
+    st zr, T_IRQPEND(s5)
+    ld t1, BE_FAULT_EP(s6)
+    st t1, T_FEP(s5)
+    ld t1, BE_FAULT_BADGE(s6)
+    st t1, T_FBADGE(s5)
+    ld t1, BE_IRQ_LINE(s6)
+    st t1, T_IRQ(s5)
+    ld t1, BE_IRQ_EP(s6)
+    st t1, T_IRQEP(s5)
+    ld t1, BE_IRQ_BADGE(s6)
+    st t1, T_IRQBADGE(s5)
+    li t1, 0                        ; capacidades: 27 palavras
+    li t4, 27
+6:  add t2, s6, t1
+    ld t3, BE_CAPS(t2)
+    add t2, s5, t1
+    st t3, T_CAPS(t2)
+    addi t1, t1, 1
+    blt t1, t4, 6b
+    li t1, ST_READY
+    st t1, T_STATE(s5)
+    ld a1, T_IRQ(s5)                ; o driver (re)nasce com a sua linha habilitada
+    bz a1, 7f
+    call irq_enable
+7:  pop s9
+    pop s8
+    pop s7
+    pop s6
+    pop s5
+    pop lr
+    ret
+
+; ── load_segment: a1 = raiz, a2 = origem física, a3 = nº de palavras,
+;    a4 = endereço virtual inicial, a5 = flags de PTE ──
+; Copia palavra a palavra, garantindo um quadro (zerado) sempre que o
+; endereço virtual entra em outra página.
+load_segment:
+    push lr
+    push s2
+    push s3
+    push s4
+    push s5
+    push s6
+    push s7
+    push s8
+    mov s2, a1
+    mov s3, a2
+    mov s4, a3
+    mov s5, a4
+    mov s6, a5
+    li s7, 0                        ; quadro atual (0 = nenhum ainda)
+    li s8, 0                        ; página virtual atual
+1:  bnp s4, 9f
+    shi t1, s5, -6                  ; página de va: arredonda ao mais próximo
+    bz s7, 2f
+    beq t1, s8, 3f
+2:  mov s8, t1
+    mov a1, s2
+    mov a2, s8
+    mov a3, s6
+    call ensure_page
+    mov s7, a1
+3:  shi t1, s8, 6                   ; centro virtual da página
+    sub t1, s5, t1                  ; deslocamento balanceado (−364..+364)
+    add t1, s7, t1                  ; endereço físico
+    ld t2, 0(s3)
+    st t2, 0(t1)
+    addi s3, s3, 1
+    addi s5, s5, 1
+    addi s4, s4, -1
+    j 1b
+9:  pop s8
+    pop s7
+    pop s6
+    pop s5
+    pop s4
+    pop s3
+    pop s2
+    pop lr
+    ret
+
+; ── ensure_page: a1 = raiz, a2 = página virtual, a3 = flags →
+;    a1 = centro do quadro dessa página, ZERADO. Reaproveita o quadro se a
+;    página já está mapeada; senão aloca e mapeia. ──
+ensure_page:
+    push lr
+    push s2
+    push s3
+    push s4
+    mov s2, a1
+    mov s3, a2
+    mov s4, a3
+    shi t1, s3, -6                  ; índice de 1º nível
+    add t2, s2, t1
+    ld t3, 0(t2)
+    bz t3, 1f
+    addi t3, t3, -PTE_TABLE         ; centro da tabela de 2º nível
+    shi t1, t1, 6
+    sub t1, s3, t1                  ; índice de 2º nível
+    add t3, t3, t1
+    ld t3, 0(t3)
+    bz t3, 1f
+    shi t1, t3, -6                  ; PTE = centro + flags: tirar os 6 trits baixos
+    shi a1, t1, 6                   ; é arredondar ao múltiplo de 729 mais próximo
+    call zero_frame
+    j 9f
+1:  call alloc_frame
+    push a1
+    mov a3, a1
+    mov a1, s2
+    mov a2, s3
+    mov a4, s4
+    call map_page
+    pop a1
+9:  pop s4
+    pop s3
+    pop s2
+    pop lr
+    ret
+
+; ── map_page: a1 = raiz, a2 = página virtual, a3 = quadro, a4 = flags ──
+map_page:
+    push lr
+    push s2
+    push s3
+    push s4
+    push s5
+    mov s2, a3
+    mov s3, a4
+    shi t1, a2, -6                  ; índice de 1º nível
+    shi t2, t1, 6
+    sub s5, a2, t2                  ; índice de 2º nível (balanceado)
+    add s4, a1, t1                  ; &raiz[i1]
+    ld t3, 0(s4)
+    bnz t3, 1f
+    call alloc_frame                ; tabela de 2º nível nova (zerada)
+    addi t3, a1, PTE_TABLE
+    st t3, 0(s4)
+1:  addi t3, t3, -PTE_TABLE         ; centro da tabela de 2º nível
+    add t3, t3, s5
+    add t1, s2, s3
+    st t1, 0(t3)                    ; PTE = centro do quadro + flags
+    pop s5
+    pop s4
+    pop s3
+    pop s2
+    pop lr
+    ret
+
+; ── alloc_frame → a1 = centro de um quadro ZERADO (folha: usa t1..t3) ──
+alloc_frame:
+    la t1, free_next
+    ld a1, 0(t1)
+    la t2, ram_half
+    ld t2, 0(t2)
+    addi t3, a1, PAGE_HALF
+    bgt t3, t2, panic_oom
+    addi t3, a1, PAGE_SIZE
+    st t3, 0(t1)
+; ── zero_frame: a1 = centro do quadro (preservado; folha: usa t1, t2) ──
+zero_frame:
+    addi t1, a1, -PAGE_HALF
+    addi t2, a1, PAGE_HALF
+1:  st zr, 0(t1)
+    addi t1, t1, 1
+    ble t1, t2, 1b
+    ret
+
+; ============================================================
+; entrada de trap
+; ============================================================
+trap_entry:
+    csrx t4, scratch, t4            ; t4 ← TCB corrente; scratch ← t4 do usuário
+    st a1, 1(t4)
+    st a2, 2(t4)
+    csrr a1, status
+    li a2, ST_USER_RET
+    bne a1, a2, panic_nested        ; trap que não veio do usuário = defeito do núcleo
+    st a3, 3(t4)
+    st a4, 4(t4)
+    st a5, 5(t4)
+    st a6, 6(t4)
+    st a7, 7(t4)
+    st a8, 8(t4)
+    st a9, 9(t4)
+    st t1, 10(t4)
+    st t2, 11(t4)
+    st t3, 12(t4)
+    csrr a1, scratch
+    st a1, 13(t4)                   ; t4 do usuário
+    csrw scratch, t4
+    st s1, -1(t4)
+    st s2, -2(t4)
+    st s3, -3(t4)
+    st s4, -4(t4)
+    st s5, -5(t4)
+    st s6, -6(t4)
+    st s7, -7(t4)
+    st s8, -8(t4)
+    st s9, -9(t4)
+    st s10, -10(t4)
+    st s11, -11(t4)
+    st lr, -12(t4)
+    st sp, -13(t4)
+    csrr a1, epc
+    st a1, T_PC(t4)
+    mov s1, t4
+    li sp, 0
+    ; o SINAL da causa classifica o trap: − falha, 0 chamada, + interrupção
+    csrr a1, cause
+    bz a1, do_syscall
+    bp a1, do_irq
+    j do_fault
+
+; ── retoma a tarefa em s1 ──
+resume_task:
+    la t1, cur
+    st s1, 0(t1)
+    ld a1, T_PTROOT(s1)
+    csrw ptroot, a1
+    ld a1, T_PC(s1)
+    csrw epc, a1
+    li a1, ST_USER_RET
+    csrw status, a1
+    csrw scratch, s1
+    mov t4, s1
+    ld a1, 1(t4)
+    ld a2, 2(t4)
+    ld a3, 3(t4)
+    ld a4, 4(t4)
+    ld a5, 5(t4)
+    ld a6, 6(t4)
+    ld a7, 7(t4)
+    ld a8, 8(t4)
+    ld a9, 9(t4)
+    ld t1, 10(t4)
+    ld t2, 11(t4)
+    ld t3, 12(t4)
+    ld s1, -1(t4)
+    ld s2, -2(t4)
+    ld s3, -3(t4)
+    ld s4, -4(t4)
+    ld s5, -5(t4)
+    ld s6, -6(t4)
+    ld s7, -7(t4)
+    ld s8, -8(t4)
+    ld s9, -9(t4)
+    ld s10, -10(t4)
+    ld s11, -11(t4)
+    ld lr, -12(t4)
+    ld sp, -13(t4)
+    ld t4, 13(t4)
+    eret
+
+; ============================================================
+; escalonador: rodízio por varredura do vetor de TCBs (O(MAX_TASKS),
+; sem filas encadeadas — nada para corromper)
+; ============================================================
+schedule:
+    csrr a3, time
+    la t1, TCB_FIRST
+    la t2, TCB_LIMIT
+1:  ld t3, T_TIMED(t1)              ; prazos vencidos: sleep termina com +1;
+    bz t3, 2f                       ; espera de IPC termina com 0 ("nada aconteceu")
+    ld t3, T_DEADLINE(t1)
+    sub t3, a3, t3                  ; agora − prazo: o relógio é modular, o SINAL decide
+    bn t3, 2f
+    ld t3, T_STATE(t1)
+    li t4, ST_SLEEP
+    li a4, 1
+    beq t3, t4, 3f
+    li a4, 0
+3:  st a4, 1(t1)
+    li t3, ST_READY
+    st t3, T_STATE(t1)
+    st zr, T_TIMED(t1)
+    st zr, T_PEER(t1)
+2:  addi t1, t1, TCB_SIZE
+    blt t1, t2, 1b
+
+    la t1, last
+    ld a2, 0(t1)                    ; começa DEPOIS da última escolhida
+    li a4, MAX_TASKS
+    li t4, ST_READY
+3:  addi a2, a2, TCB_SIZE
+    blt a2, t2, 4f
+    la a2, TCB_FIRST
+4:  ld t3, T_STATE(a2)
+    beq t3, t4, 5f
+    addi a4, a4, -1
+    bp a4, 3b
+    j idle
+5:  st a2, 0(t1)
+    csrr t1, time
+    la t3, quantum
+    ld t3, 0(t3)
+    add t1, t1, t3
+    csrw timecmp, t1                ; nova fatia
+    mov s1, a2
+    j resume_task
+
+; ── ninguém pronto ──
+idle:
+    la t1, TCB_FIRST
+    la t2, TCB_LIMIT
+    li a1, 0                        ; há espera com prazo?
+    li a2, 0                        ; menor espera restante
+    li a3, 0                        ; há tarefa bloqueada sem prazo?
+    li a5, 0                        ; há driver vivo (pode ser acordado por interrupção)?
+    csrr a4, time
+1:  ld t3, T_STATE(t1)
+    bnn t3, 6f                      ; livre: nada
+    li t4, ST_SLEEP
+    blt t3, t4, 6f                  ; zumbi ou morta: nada
+    ld t4, T_IRQ(t1)
+    bz t4, 2f
+    li a5, 1
+2:  ld t4, T_TIMED(t1)
+    bnz t4, 3f
+    li a3, 1
+    j 6f
+3:  ld t3, T_DEADLINE(t1)
+    sub t3, t3, a4                  ; espera restante (> 0: schedule já tratou os vencidos)
+    bz a1, 5f
+    bge t3, a2, 6f
+5:  mov a2, t3
+    li a1, 1
+6:  addi t1, t1, TCB_SIZE
+    blt t1, t2, 1b
+    bz a1, 7f
+    add a2, a2, a4
+    csrw timecmp, a2                ; espera o próximo prazo (ou uma interrupção)
+idle_wait_timed:
+    wfi
+    csrr a1, irqn
+    li t1, IRQ_TIMER
+    ble a1, t1, schedule            ; prazo vencido: o escalonador acorda quem deve
+    call irq_dispatch
+    j schedule
+7:  bz a5, 8f
+    la t1, imask_shadow             ; só uma interrupção de dispositivo pode acordar:
+    ld t2, 0(t1)                    ; espera com o timer mascarado
+    addi t3, t2, -1
+    csrw imask, t3
+    wfi
+    csrr a1, irqn                   ; lido com o timer ainda mascarado: só dispositivos
+    csrw imask, t2
+    bz a1, schedule
+    call irq_dispatch
+    j schedule
+8:  ; nada mais pode acontecer: desliga. 0 = todas terminaram;
+    ; 3 = restaram tarefas bloqueadas para sempre.
+    li a1, 0
+    bz a3, 9f
+    li a1, 3
+9:  la t1, DEV_POWER
+    st a1, 0(t1)
+    j 9b
+
+; ============================================================
+; interrupções
+; ============================================================
+do_irq:
+    li t1, IRQ_TIMER
+    beq a1, t1, schedule            ; timer: fim da fatia
+    call irq_dispatch
+    j resume_task                   ; a tarefa interrompida segue; o driver roda na vez dele
+
+; ── irq_dispatch: a1 = linha de dispositivo. Mascara a linha e entrega a
+;    interrupção ao driver como MENSAGEM no endpoint dele (ou a deixa
+;    pendente para o próximo recv). Sem driver vivo, a linha fica mascarada. ──
+irq_dispatch:
+    push lr
+    push s2
+    push s3
+    mov s2, a1
+    call irq_disable
+    la s3, TCB_FIRST
+1:  ld t3, T_IRQ(s3)
+    bne t3, s2, 2f
+    ld t3, T_STATE(s3)
+    li t4, ST_SLEEP
+    blt t3, t4, 2f                  ; zumbi ou morta
+    bnz t3, 3f                      ; viva
+2:  addi s3, s3, TCB_SIZE
+    la t2, TCB_LIMIT
+    blt s3, t2, 1b
+    j 9f
+3:  li t1, 1
+    st t1, T_IRQPEND(s3)
+    li t4, ST_BLK_RECV
+    bne t3, t4, 9f
+    ld t3, T_EP(s3)
+    ld t4, T_IRQEP(s3)
+    bne t3, t4, 9f
+    st zr, T_IRQPEND(s3)            ; o driver já esperava: entrega agora
+    mov a1, s3
+    call deliver_irq
+    mov a1, s3
+    li a2, 1
+    call make_ready
+9:  pop s3
+    pop s2
+    pop lr
+    ret
+
+; ── deliver_irq: a1 = TCB do driver; põe a "mensagem" de interrupção nos
+;    registradores dele (folha: usa t1) ──
+deliver_irq:
+    ld t1, T_IRQBADGE(a1)
+    st t1, 2(a1)
+    ld t1, T_IRQ(a1)
+    st t1, 3(a1)
+    st zr, 10(a1)                   ; sem recibo
+    ret
+
+; ── irq_enable / irq_disable: a1 = linha (folhas: usam t1..t3).
+;    A máscara é uma palavra com um trit por linha (0 ou +1). ──
+irq_enable:
+    bnp a1, 9f
+    li t1, MAX_IRQ
+    bgt a1, t1, 9f
+    la t1, irq_on
+    add t1, t1, a1
+    ld t2, 0(t1)
+    bnz t2, 9f
+    li t2, 1
+    st t2, 0(t1)
+    addi t3, a1, -1
+    sh t2, t2, t3                   ; peso da linha: 3^(linha−1)
+    la t1, imask_shadow
+    ld t3, 0(t1)
+    add t3, t3, t2
+    st t3, 0(t1)
+    csrw imask, t3
+9:  ret
+irq_disable:
+    bnp a1, 9f
+    li t1, MAX_IRQ
+    bgt a1, t1, 9f
+    la t1, irq_on
+    add t1, t1, a1
+    ld t2, 0(t1)
+    bz t2, 8f
+    st zr, 0(t1)
+    li t2, 1
+    addi t3, a1, -1
+    sh t2, t2, t3
+    la t1, imask_shadow
+    ld t3, 0(t1)
+    sub t3, t3, t2
+    st t3, 0(t1)
+8:  la t1, imask_shadow             ; reescreve SEMPRE a máscara da máquina a partir da
+    ld t3, 0(t1)                    ; cópia: uma linha espúria (que o núcleo julgava
+    csrw imask, t3                  ; mascarada) não vira tempestade de interrupções
+9:  ret
+
+; ============================================================
+; falhas e morte
+; ============================================================
+do_fault:
+    ; a tarefa faltosa é contida: morre; quem dependia dela é avisado
+    st a1, T_FCAUSE(s1)
+    csrr t1, tval
+    st t1, T_FVAL(s1)
+    st zr, T_EXIT(s1)
+    ; cai em die
+
+; ── die: a tarefa corrente (s1) morreu — T_FCAUSE/T_FVAL/T_EXIT já
+;    preenchidos. Avisa o supervisor, se houver, pelo endpoint de aviso:
+;    entrega direta se ele já espera; senão fica ZUMBI até ser colhida. ──
+die:
+    mov a1, s1
+    call kill_task
+    ld s2, T_FEP(s1)
+    bz s2, schedule
+    st s2, T_EP(s1)
+    mov a1, s1
+    call stamp
+    mov a2, s2
+    call find_receiver
+    bz a1, 1f
+    mov s3, a1
+    mov a1, s1
+    mov a2, s3
+    call deliver_death
+    mov a1, s3
+    li a2, 1
+    call make_ready
+    j schedule
+1:  li t1, ST_ZOMBIE
+    st t1, T_STATE(s1)
+    j schedule
+
+; ── kill_task: a1 = TCB. Marca como morta e acorda com erro quem
+;    aguardava resposta dela (ninguém fica pendurado em silêncio). ──
+kill_task:
+    push lr
+    push s2
+    push s3
+    mov s2, a1
+    li t1, ST_DEAD
+    st t1, T_STATE(s2)
+    st zr, T_TIMED(s2)
+    st zr, T_PEER(s2)
+    st zr, T_IRQPEND(s2)
+    la s3, TCB_FIRST
+1:  ld t3, T_STATE(s3)
+    li t4, ST_BLK_REPLY
+    bne t3, t4, 2f
+    ld t3, T_PEER(s3)
+    bne t3, s2, 2f
+    li t3, E_DEADPEER
+    st t3, 2(s3)
+    mov a1, s3
+    li a2, -1
+    call make_ready
+2:  addi s3, s3, TCB_SIZE
+    la t2, TCB_LIMIT
+    blt s3, t2, 1b
+    ld a1, T_IRQ(s2)                ; driver morto: a linha dele fica mascarada
+    call irq_disable
+    pop s3
+    pop s2
+    pop lr
+    ret
+
+; ── deliver_death: a1 = TCB da morta, a2 = TCB de quem recebe o aviso
+;    (folha: usa t1). Mensagem: a3 = id, a4 = causa (0 = exit), a5 = tval,
+;    a6 = pc, a7 = código de saída. ──
+deliver_death:
+    ld t1, T_FBADGE(a1)
+    st t1, 2(a2)
+    st zr, 10(a2)                   ; sem recibo
+    ld t1, T_ID(a1)
+    st t1, 3(a2)
+    ld t1, T_FCAUSE(a1)
+    st t1, 4(a2)
+    ld t1, T_FVAL(a1)
+    st t1, 5(a2)
+    ld t1, T_PC(a1)
+    st t1, 6(a2)
+    ld t1, T_EXIT(a1)
+    st t1, 7(a2)
+    st zr, 8(a2)
+    st zr, 9(a2)
+    ret
+
+; ── make_ready: a1 = TCB, a2 = resultado (vira o a1 da tarefa). Único
+;    ponto por onde uma tarefa bloqueada volta a ficar pronta por evento
+;    (folha: usa t1). ──
+make_ready:
+    st a2, 1(a1)
+    li t1, ST_READY
+    st t1, T_STATE(a1)
+    st zr, T_TIMED(a1)
+    st zr, T_PEER(a1)
+    ret
+
+; ============================================================
+; chamadas de sistema
+; ============================================================
+do_syscall:
+    ld t1, T_PC(s1)
+    addi t1, t1, 1                  ; retorna após o `sys`
+    st t1, T_PC(s1)
+    ld a1, 1(s1)
+    bn a1, sys_bad
+    li t1, NSYS
+    bge a1, t1, sys_bad
+    la t1, sys_table
+    add t1, t1, a1
+    ld t1, 0(t1)
+    jr t1
+
+sys_bad:
+    li a1, E_NOSYS
+ret_err:                            ; a1 = código de erro
+    st a1, 2(s1)
+    li t1, -1
+    st t1, 1(s1)
+    j resume_task
+ret_ok:
+    li t1, 1
+    st t1, 1(s1)
+    j resume_task
+ret_zero:
+    st zr, 1(s1)
+    j resume_task
+bad_cap:
+    li a1, E_BADCAP
+    j ret_err
+
+sys_yield:
+    li t1, 1
+    st t1, 1(s1)
+    j schedule
+
+sys_exit:
+    ld t1, 2(s1)
+    st t1, T_EXIT(s1)
+    st zr, T_FCAUSE(s1)
+    st zr, T_FVAL(s1)
+    j die
+
+sys_putc:
+    ld a1, 2(s1)                    ; o console também exige capacidade
+    call cap_lookup
+    bz a1, bad_cap
+    ld t1, CAP_KIND(a1)
+    li t2, CAP_CONSOLE
+    bne t1, t2, bad_cap
+    ld t1, 3(s1)
+    la t2, DEV_CONSOLE
+    st t1, 0(t2)
+    j ret_ok
+
+sys_sleep:
+    ld t1, 2(s1)
+    bnp t1, sys_yield               ; prazo ≤ 0: só cede
+    la t2, SLEEP_MAX
+    ble t1, t2, 1f
+    mov t1, t2
+1:  csrr t2, time
+    add t1, t1, t2
+    st t1, T_DEADLINE(s1)
+    li t1, 1
+    st t1, T_TIMED(s1)
+    li t1, ST_SLEEP
+    st t1, T_STATE(s1)
+    j schedule
+
+sys_time:
+    csrr t1, time
+    st t1, 2(s1)
+    j ret_ok
+
+; ── envio: s4 = tipo (1 send, 2 call) ──
+sys_send:
+    li s4, 1
+    j send_common
+sys_call:
+    li s4, 2
+send_common:
+    ld a1, 2(s1)
+    call cap_lookup
+    bz a1, bad_cap
+    ld t1, CAP_KIND(a1)
+    li t2, CAP_EP_SEND
+    bne t1, t2, bad_cap
+    ld s2, CAP_OBJ(a1)              ; s2 = endpoint
+    ld s3, CAP_BADGE(a1)            ; s3 = selo
+    mov a1, s1
+    call stamp                      ; carimbo: ordem de chegada E recibo de resposta
+    mov a2, s2
+    call find_receiver
+    bz a1, send_block
+    mov s6, a1                      ; s6 = receptor à espera: entrega direta
+    mov a1, s1
+    mov a2, s6
+    call copy_msg
+    st s3, 2(s6)
+    st zr, 10(s6)                   ; send simples: sem recibo
+    li t1, 2
+    bne s4, t1, 1f
+    ld t1, T_SEQ(s1)
+    st t1, 10(s6)                   ; call: o recibo é o carimbo do chamador
+1:  mov a1, s6
+    li a2, 1
+    call make_ready
+    li t1, 2
+    beq s4, t1, 2f
+    j ret_ok
+2:  st s6, T_PEER(s1)               ; call: aguarda a resposta DESTE servidor
+    li t1, ST_BLK_REPLY
+    st t1, T_STATE(s1)
+    call arm_block
+    j schedule
+send_block:
+    ld t1, 10(s1)
+    bz t1, ret_zero                 ; paciência zero: não espera
+    li t1, ST_BLK_SEND
+    st t1, T_STATE(s1)
+    st s2, T_EP(s1)
+    st s4, T_SENDKIND(s1)
+    st s3, T_BADGE(s1)
+    call arm_block
+    j schedule
+
+sys_recv:
+    ld a1, 2(s1)
+    call cap_lookup
+    bz a1, bad_cap
+    ld t1, CAP_KIND(a1)
+    li t2, CAP_EP_RECV
+    bne t1, t2, bad_cap
+    ld s2, CAP_OBJ(a1)
+    ld t1, T_IRQPEND(s1)            ; interrupção pendente do próprio driver vem primeiro
+    bz t1, 1f
+    ld t1, T_IRQEP(s1)
+    bne t1, s2, 1f
+    st zr, T_IRQPEND(s1)
+    mov a1, s1
+    call deliver_irq
+    j ret_ok
+1:  mov a2, s2
+    call find_sender
+    bz a1, recv_block
+    mov s6, a1                      ; s6 = remetente (ou zumbi) à espera
+    ld t1, T_STATE(s6)
+    li t2, ST_ZOMBIE
+    bne t1, t2, 2f
+    mov a1, s6                      ; aviso de morte: colhido, o zumbi descansa
+    mov a2, s1
+    call deliver_death
+    li t1, ST_DEAD
+    st t1, T_STATE(s6)
+    j ret_ok
+2:  mov a1, s6
+    mov a2, s1
+    call copy_msg
+    ld t1, T_BADGE(s6)
+    st t1, 2(s1)
+    ld t1, T_SENDKIND(s6)
+    li t2, 2
+    beq t1, t2, 3f
+    st zr, 10(s1)                   ; send simples: sem recibo; o remetente segue
+    mov a1, s6
+    li a2, 1
+    call make_ready
+    j ret_ok
+3:  ld t1, T_SEQ(s6)                ; call: entrega o recibo; o chamador passa a
+    st t1, 10(s1)                   ; aguardar a resposta (o prazo dele continua valendo)
+    li t1, ST_BLK_REPLY
+    st t1, T_STATE(s6)
+    st s1, T_PEER(s6)
+    j ret_ok
+recv_block:
+    ld t1, 10(s1)
+    bz t1, ret_zero                 ; paciência zero: não espera
+    li t1, ST_BLK_RECV
+    st t1, T_STATE(s1)
+    st s2, T_EP(s1)
+    mov a1, s1
+    call stamp
+    call arm_block
+    j schedule
+
+; ── reply: a2 = recibo. Só vale para um chamador que aguarda resposta
+;    DESTA tarefa com exatamente esse carimbo. (O recibo 0 nunca casa:
+;    carimbos nunca são zero — ver `stamp`.) ──
+sys_reply:
+    ld a2, 2(s1)
+    la t1, TCB_FIRST
+    la t2, TCB_LIMIT
+1:  ld t3, T_STATE(t1)
+    li t4, ST_BLK_REPLY
+    bne t3, t4, 2f
+    ld t3, T_PEER(t1)
+    bne t3, s1, 2f
+    ld t3, T_SEQ(t1)
+    beq t3, a2, 4f
+2:  addi t1, t1, TCB_SIZE
+    blt t1, t2, 1b
+    li a1, E_NOCALLER
+    j ret_err
+4:  mov s6, t1
+    mov a1, s1
+    mov a2, s6
+    call copy_msg
+    st zr, 2(s6)
+    mov a1, s6
+    li a2, 1
+    call make_ready
+    j ret_ok
+
+; ── task: a2 = capacidade de tarefa; a3 = operação pelo SINAL:
+;    − mata, 0 consulta, + reinicia ──
+sys_task:
+    ld a1, 2(s1)
+    call cap_lookup
+    bz a1, bad_cap
+    ld t1, CAP_KIND(a1)
+    li t2, CAP_TASK
+    bne t1, t2, bad_cap
+    ld s2, CAP_OBJ(a1)              ; s2 = índice da tarefa-alvo
+    bn s2, bad_cap
+    la t1, ntasks
+    ld t1, 0(t1)
+    bge s2, t1, bad_cap
+    shi t1, s2, TCB_SHIFT
+    la s3, TCB_FIRST
+    add s3, s3, t1                  ; s3 = TCB alvo
+    ld s4, 3(s1)
+    bz s4, task_query
+    bp s4, task_restart
+    ld t1, T_STATE(s3)              ; matar
+    li t2, ST_SLEEP
+    blt t1, t2, ret_zero            ; já morta: nada a fazer
+    li t1, CAUSE_KILLED
+    st t1, T_FCAUSE(s3)
+    st zr, T_FVAL(s3)
+    st zr, T_EXIT(s3)
+    mov a1, s3
+    call kill_task
+    beq s3, s1, schedule
+    j ret_ok
+task_query:
+    ld t1, T_STATE(s3)
+    st t1, 2(s1)
+    ld t1, T_FCAUSE(s3)
+    st t1, 3(s1)
+    ld t1, T_EXIT(s3)
+    st t1, 4(s1)
+    ld t1, T_GEN(s3)
+    st t1, 5(s1)
+    j ret_ok
+task_restart:
+    mov a1, s3                      ; quem dependia da encarnação antiga é avisado
+    call kill_task
+    mov a1, s2
+    call init_task                  ; reconstrói a partir da imagem original
+    ld t1, T_GEN(s3)
+    addi t1, t1, 1
+    st t1, T_GEN(s3)
+    beq s3, s1, schedule
+    j ret_ok
+
+; ── irq_ack: a2 = capacidade de interrupção; reabilita a linha ──
+sys_irq_ack:
+    ld a1, 2(s1)
+    call cap_lookup
+    bz a1, bad_cap
+    ld t1, CAP_KIND(a1)
+    li t2, CAP_IRQ
+    bne t1, t2, bad_cap
+    ld a1, CAP_OBJ(a1)
+    call irq_enable
+    j ret_ok
+
+; ── cap_lookup: a1 = slot (QUALQUER palavra vinda do usuário) →
+;    a1 = endereço da capacidade, ou 0 se o slot não existe (folha) ──
+cap_lookup:
+    bn a1, 1f
+    li t1, CAP_SLOTS
+    bge a1, t1, 1f
+    add t1, a1, a1
+    add t1, t1, a1
+    add a1, s1, t1
+    addi a1, a1, T_CAPS
+    ret
+1:  li a1, 0
+    ret
+
+; ── find_receiver: a2 = endpoint → a1 = TCB do receptor mais antigo à
+;    espera nele, ou 0 (folha: usa t1..t4, a3, a4) ──
+find_receiver:
+    la t1, TCB_FIRST
+    la t2, TCB_LIMIT
+    li a3, 0
+    li a4, 0
+1:  ld t3, T_STATE(t1)
+    li t4, ST_BLK_RECV
+    bne t3, t4, 2f
+    ld t3, T_EP(t1)
+    bne t3, a2, 2f
+    ld t3, T_SEQ(t1)
+    bz a3, 3f
+    sub t4, t3, a4                  ; carimbos também são modulares: compara pela diferença
+    bnn t4, 2f
+3:  mov a3, t1
+    mov a4, t3
+2:  addi t1, t1, TCB_SIZE
+    blt t1, t2, 1b
+    mov a1, a3
+    ret
+
+; ── find_sender: a2 = endpoint → a1 = TCB do remetente (ou zumbi com
+;    aviso de morte) mais antigo à espera nele, ou 0 (folha) ──
+find_sender:
+    la t1, TCB_FIRST
+    la t2, TCB_LIMIT
+    li a3, 0
+    li a4, 0
+1:  ld t3, T_STATE(t1)
+    li t4, ST_BLK_SEND
+    beq t3, t4, 4f
+    li t4, ST_ZOMBIE
+    bne t3, t4, 2f
+4:  ld t3, T_EP(t1)
+    bne t3, a2, 2f
+    ld t3, T_SEQ(t1)
+    bz a3, 3f
+    sub t4, t3, a4
+    bnn t4, 2f
+3:  mov a3, t1
+    mov a4, t3
+2:  addi t1, t1, TCB_SIZE
+    blt t1, t2, 1b
+    mov a1, a3
+    ret
+
+; ── copy_msg: a1 = TCB origem, a2 = TCB destino; copia a3..a9 (folha) ──
+copy_msg:
+    ld t1, 3(a1)
+    st t1, 3(a2)
+    ld t1, 4(a1)
+    st t1, 4(a2)
+    ld t1, 5(a1)
+    st t1, 5(a2)
+    ld t1, 6(a1)
+    st t1, 6(a2)
+    ld t1, 7(a1)
+    st t1, 7(a2)
+    ld t1, 8(a1)
+    st t1, 8(a2)
+    ld t1, 9(a1)
+    st t1, 9(a2)
+    ret
+
+; ── stamp: a1 = TCB; carimbo novo e nunca zero (folha: usa t1, t2) ──
+stamp:
+    la t1, seq
+    ld t2, 0(t1)
+1:  addi t2, t2, 1
+    bz t2, 1b
+    st t2, 0(t1)
+    st t2, T_SEQ(a1)
+    ret
+
+; ── arm_block: a tarefa corrente (s1) vai esperar. A PACIÊNCIA veio em t1,
+;    e o sinal decide: negativa = espera para sempre; ≥ 0 = prazo de tantos
+;    passos (folha: usa t1, t2) ──
+arm_block:
+    ld t1, 10(s1)
+    st zr, T_TIMED(s1)
+    bn t1, 9f
+    la t2, SLEEP_MAX
+    ble t1, t2, 1f
+    mov t1, t2
+1:  csrr t2, time
+    add t1, t1, t2
+    st t1, T_DEADLINE(s1)
+    li t1, 1
+    st t1, T_TIMED(s1)
+9:  ret
+
+; ============================================================
+; pânico: defeito do próprio núcleo. Desliga com código negativo.
+; ============================================================
+panic_nested:
+    li a1, PANIC_NESTED
+    j panic
+panic_boot:
+    li a1, PANIC_BOOT
+    j panic
+panic_oom:
+    li a1, PANIC_OOM
+panic:
+    la t1, panic_code
+    st a1, 0(t1)
+    la t1, DEV_CONSOLE
+    li t2, '!'
+    st t2, 0(t1)
+    li t2, 'K'
+    st t2, 0(t1)
+    li t2, '\n'
+    st t2, 0(t1)
+    neg a1, a1
+    la t1, DEV_POWER
+    st a1, 0(t1)
+1:  j 1b
+
+; ============================================================
+; dados do núcleo (tudo estático: nenhuma alocação além de quadros no boot)
+; ============================================================
+    .data
+sys_table:
+    .word sys_yield, sys_send, sys_recv, sys_call, sys_reply
+    .word sys_exit, sys_sleep, sys_time, sys_putc, sys_task, sys_irq_ack
+    .assert . - sys_table == NSYS
+
+cur:          .word 0               ; TCB corrente
+last:         .word 0               ; última escolhida pelo rodízio
+seq:          .word 0               ; contador de carimbos
+free_next:    .word 0               ; próximo quadro livre (centro)
+ram_half:     .word 0
+quantum:      .word 0               ; fatia de tempo em vigor
+ntasks:       .word 0
+imask_shadow: .word 0               ; cópia da máscara de interrupções
+panic_code:   .word 0
+irq_on:       .zero MAX_IRQ + 1     ; por linha: 1 = habilitada
+
+boot_tcb:   .zero TCB_SIZE          ; salvamento para traps antes da 1ª tarefa
+tcbs:       .zero TCB_SIZE * MAX_TASKS
+boot_table: .zero BT_TASKS + BE_SIZE * MAX_TASKS
+kernel_end:

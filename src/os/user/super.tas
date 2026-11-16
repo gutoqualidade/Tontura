@@ -1,0 +1,106 @@
+; ============================================================
+; TENERURA — supervisor: POLÍTICA de recuperação em espaço de usuário.
+;
+; O núcleo só avisa (mensagem de morte) e executa (reinício sob
+; capacidade). Decidir é com esta tarefa:
+;   - quem FALHA é reiniciada, até MAX_RESTARTS vezes;
+;   - quem SAI por vontade própria não é reiniciada;
+;   - quando nenhuma supervisionada resta viva, o supervisor encerra.
+;
+; Capacidades: 0 = recepção no endpoint de avisos;
+;              1..6 = capacidades de tarefa das supervisionadas — o SELO do
+;                     aviso de cada uma é o slot da sua capacidade, NEGADO
+;                     (selo negativo = mensagem do núcleo, não de tarefa);
+;              7 = envio ao servidor de console.
+; ============================================================
+    .include "../lib/abi.inc"
+    .equ MAX_RESTARTS, 3
+    .equ FIRST_SLOT,   1
+    .equ LAST_SLOT,    6
+
+    .org USER_TEXT
+_start:
+loop:
+    li a1, SYS_RECV
+    li a2, 0
+    li t1, FOREVER
+    sys
+    bnp a1, loop
+    bnn a2, loop                    ; selo ≥ 0: veio de uma tarefa, não do núcleo — ignora
+    neg s1, a2                      ; slot da capacidade da tarefa
+    mov s2, a3                      ; id
+    mov s3, a4                      ; causa (0 = saiu por conta própria)
+    mov s4, a7                      ; código de saída
+    li t1, FIRST_SLOT               ; selo fora da faixa: ignora (config. errada)
+    blt s1, t1, loop
+    li t1, LAST_SLOT
+    bgt s1, t1, loop
+
+    la a2, m_task
+    call puts
+    mov a2, s2
+    call putdec
+    bz s3, exited
+
+    la a2, m_fault
+    call puts
+    mov a2, s3
+    call putdec
+    la t1, restarts
+    add t1, t1, s1
+    ld s5, 0(t1)
+    li t2, MAX_RESTARTS
+    bge s5, t2, give_up
+    addi s5, s5, 1
+    st s5, 0(t1)
+    la a2, m_restart
+    call puts
+    mov a2, s5
+    call putdec
+    li a2, '\n'
+    call putc
+    li a1, SYS_TASK
+    mov a2, s1
+    li a3, 1                        ; operação positiva: reinicia
+    sys
+    j loop
+
+give_up:
+    la a2, m_giveup
+    call puts
+    j check_alive
+exited:
+    la a2, m_exit
+    call puts
+    mov a2, s4
+    call putdec
+    li a2, '\n'
+    call putc
+
+check_alive:                        ; resta alguma supervisionada viva?
+    li s6, FIRST_SLOT
+1:  li a1, SYS_TASK
+    mov a2, s6
+    li a3, 0                        ; operação zero: consulta
+    sys
+    bnp a1, 2f                      ; slot sem capacidade de tarefa
+    li t1, -4
+    bge a2, t1, loop                ; estado ≥ −4: viva (pronta, bloqueada ou dormindo)
+2:  addi s6, s6, 1
+    li t1, LAST_SLOT
+    ble s6, t1, 1b
+    la a2, m_done
+    call puts
+    li a2, 0
+    j exit
+
+    .include "../lib/ulib_drv.inc"
+
+    .data
+restarts: .zero 9
+m_task:    .stringz "[sup] tarefa "
+m_fault:   .stringz " falhou, causa "
+m_restart: .stringz ": reinicio "
+m_giveup:  .stringz ": desisto\n"
+m_exit:    .stringz " saiu com codigo "
+m_done:    .stringz "[sup] nada mais a supervisionar\n"

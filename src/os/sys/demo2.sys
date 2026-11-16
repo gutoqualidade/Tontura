@@ -1,0 +1,10 @@
+# TENERURA — demonstração 2: driver de console em espaço de usuário,
+# supervisão com reinício, cliente resiliente e entrada por interrupção.
+#   endpoint 10 = servidor de console     endpoint 20 = avisos de morte
+#   endpoint 30 = serviço instável
+kernel ../kernel/kernel.tas
+task condrv ../user/condrv.tas recv:0=10 irq:1=2 dev=console@100 irqline=2:10/-1
+task super  ../user/super.tas  recv:0=20 task:1=2 task:2=3 task:3=4 send:7=10
+task flaky  ../user/flaky.tas  recv:0=30 fault=20/-1
+task client ../user/client.tas send:0=30 send:7=10 fault=20/-2
+task echo   ../user/echo.tas   send:7=10 fault=20/-3

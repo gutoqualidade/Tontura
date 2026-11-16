@@ -1,0 +1,51 @@
+; ============================================================
+; TENERURA — cliente resiliente: faz `count` pedidos ao servidor instável.
+; Se o servidor morre no meio (E_DEADPEER) ou o prazo vence, tenta de novo
+; o MESMO pedido. Ao final imprime quantos pedidos concluiu e quantas
+; tentativas extras precisou, pelo servidor de console.
+; Capacidades: 0 = envio ao serviço; 7 = envio ao servidor de console.
+; ============================================================
+    .include "../lib/abi.inc"
+    .equ PATIENCE, 500000
+
+    .org USER_TEXT
+_start:
+    la t1, count
+    ld s3, 0(t1)
+    li s1, 1                        ; pedido atual
+    li s2, 0                        ; tentativas repetidas
+1:  li a1, SYS_CALL
+    li a2, 0
+    mov a3, s1
+    la t1, PATIENCE
+    sys
+    bp a1, 2f                       ; +1: respondido
+    addi s2, s2, 1                  ; 0 (prazo) ou −1 (servidor morreu): de novo
+    j 1b
+2:  addi t1, s1, 1
+    bne a3, t1, wrong
+    addi s1, s1, 1
+    ble s1, s3, 1b
+
+    la a2, m_done
+    call puts
+    mov a2, s3
+    call putdec
+    la a2, m_retry
+    call puts
+    mov a2, s2
+    call putdec
+    li a2, '\n'
+    call putc
+    li a2, 0
+    j exit
+wrong:
+    li a2, 1
+    j exit
+
+    .include "../lib/ulib_drv.inc"
+
+    .data
+count:   .word 10
+m_done:  .stringz "cliente: pedidos concluidos "
+m_retry: .stringz ", repeticoes "
