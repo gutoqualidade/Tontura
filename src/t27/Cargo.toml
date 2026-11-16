@@ -1,0 +1,16 @@
+[package]
+name = "tenerura-t27"
+version = "0.1.0"
+edition = "2021"
+description = "TENERURA — máquina T27 (ISA ternária balanceada de 27 trits): emulador, montador e ferramentas"
+
+[dependencies]
+# Zero dependências externas (mesma política de src/rust): PRNG próprio com
+# sementes registradas; nada de crates de terceiros.
+
+[profile.release]
+lto = true
+codegen-units = 1
+
+[profile.test]
+opt-level = 2     # os testes de sistema executam milhões de instruções emuladas

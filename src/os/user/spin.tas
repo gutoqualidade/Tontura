@@ -1,0 +1,6 @@
+; TENERURA — tarefa que nunca cede o processador (laço infinito).
+; Só a preempção por tempo impede que ela trave o sistema.
+    .org 365
+_start:
+1:  addi s1, s1, 1
+    j 1b
