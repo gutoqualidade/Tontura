@@ -1,0 +1,110 @@
+; ============================================================
+; TENERURA — driver de console em ESPAÇO DE USUÁRIO.
+;
+; O núcleo não conhece o console: este driver recebe a página do
+; dispositivo mapeada no seu espaço de endereços e a linha de interrupção
+; entregue como mensagem no seu endpoint. Clientes falam com ele por IPC.
+;
+; Configuração (manifesto):  dev=console@100  irqline=2:<ep>/-1
+;   capacidade 0 = recepção no endpoint do console
+;   capacidade 1 = reconhecimento da linha 2
+;
+; Protocolo (call):  a3 = 1, a4 = caractere   escreve      → a3 = 1
+;                    a3 = 2                    lê um caractere → a3 = caractere
+;                                              (a resposta é ADIADA até haver entrada)
+;                    outro                                    → a3 = −1
+; Só um leitor pode esperar por vez; um segundo recebe −1.
+; ============================================================
+    .include "../lib/abi.inc"
+    .equ CON,        72900          ; centro da página virtual 100
+    .equ CON_TX,     0
+    .equ CON_RX,     1
+    .equ CON_STATUS, 2
+    .equ IRQ_BADGE,  -1
+    .equ RING,       27             ; capacidade do buffer de entrada
+
+    .org USER_TEXT
+_start:
+    li s5, 0                        ; s5 = posição de escrita no anel
+    li s6, 0                        ; s6 = posição de leitura
+    li s7, 0                        ; s7 = recibo do leitor à espera (0 = nenhum)
+    la s8, CON
+loop:
+    li a1, SYS_RECV
+    li a2, 0
+    li t1, FOREVER
+    sys
+    bnp a1, loop
+    mov s1, t1                      ; recibo
+    li t2, IRQ_BADGE
+    beq a2, t2, on_irq
+    bz s1, loop                     ; send simples: nada a responder
+    li t2, 1
+    beq a3, t2, do_write
+    li t2, 2
+    beq a3, t2, do_read
+    li a3, -1
+    j answer
+
+do_write:
+    st a4, CON_TX(s8)
+    li a3, 1
+    j answer
+
+do_read:
+    beq s5, s6, 1f                  ; anel vazio: adia
+    call ring_pop
+    mov a3, a1
+    j answer
+1:  bnz s7, 2f                      ; já há um leitor esperando
+    mov s7, s1
+    j loop
+2:  li a3, -1
+answer:
+    li a1, SYS_REPLY
+    mov a2, s1
+    sys
+    j loop
+
+on_irq:
+    ld t3, CON_STATUS(s8)           ; esvazia o dispositivo para o anel
+    bz t3, 1f
+    ld a1, CON_RX(s8)
+    call ring_push
+    j on_irq
+1:  li a1, SYS_IRQ_ACK              ; pronto para a próxima interrupção
+    li a2, 1
+    sys
+    bz s7, loop                     ; leitor esperando e há entrada: responde agora
+    beq s5, s6, loop
+    call ring_pop
+    mov a3, a1
+    mov s1, s7
+    li s7, 0
+    j answer
+
+; anel de entrada com índices BALANCEADOS: a posição corre para sempre e o
+; resto centrado por 27 cai em −13..+13, deslocamento a partir do CENTRO.
+ring_push:                          ; a1 = caractere (descarta se cheio)
+    sub t1, s5, s6
+    li t2, RING
+    bge t1, t2, 1f
+    rem t1, s5, t2
+    la t3, ring
+    add t3, t3, t1
+    st a1, 0(t3)
+    addi s5, s5, 1
+1:  ret
+ring_pop:                           ; → a1 = caractere (só chamar com o anel não vazio)
+    li t2, RING
+    rem t1, s6, t2
+    la t3, ring
+    add t3, t3, t1
+    ld a1, 0(t3)
+    addi s6, s6, 1
+    ret
+
+    .data
+    .zero 13
+ring:
+    .zero 14

@@ -1,0 +1,29 @@
+; TENERURA — servidor de exemplo: recebe (op, valor) e responde valor+1.
+; op 0 = encerrar (responde e sai). Capacidade 0 = lado receptor do endpoint.
+    .include "../lib/abi.inc"
+    .org USER_TEXT
+_start:
+loop:
+    li a1, SYS_RECV
+    li a2, 0
+    li t1, FOREVER
+    sys
+    bnp a1, fail
+    mov s1, t1                  ; recibo de resposta
+    bz a3, quit
+    addi a3, a4, 1
+    li a1, SYS_REPLY
+    mov a2, s1
+    sys
+    bnp a1, fail
+    j loop
+quit:
+    li a1, SYS_REPLY
+    mov a2, s1
+    sys
+    li a2, 0
+    j exit
+fail:
+    li a2, 1
+    j exit
+    .include "../lib/ulib.inc"

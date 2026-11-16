@@ -1,0 +1,28 @@
+; ============================================================
+; TENERURA — eco: lê caracteres do servidor de console e os devolve em
+; maiúsculas; 'q' encerra. Exercita o caminho de ENTRADA: dispositivo →
+; interrupção → mensagem ao driver → resposta adiada ao leitor.
+; Capacidade 7 = envio ao servidor de console.
+; ============================================================
+    .include "../lib/abi.inc"
+    .org USER_TEXT
+_start:
+loop:
+    call getc
+    bnp a1, fail
+    li t1, 'q'
+    beq a2, t1, quit
+    li t1, 'a'
+    blt a2, t1, 1f
+    li t1, 'z'
+    bgt a2, t1, 1f
+    addi a2, a2, 'A' - 'a'
+1:  call putc
+    j loop
+quit:
+    li a2, 0
+    j exit
+fail:
+    li a2, 1
+    j exit
+    .include "../lib/ulib_drv.inc"

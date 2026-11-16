@@ -1,0 +1,34 @@
+; TENERURA — "agitador": tarefa bem-comportada que mantém um endpoint em
+; movimento. Em laço: tenta entregar uma mensagem a quem estiver esperando
+; e tenta recolher uma de quem estiver enviando (ambas sem esperar); se
+; recolheu uma chamada, responde duas vezes em cada três (na terceira,
+; deixa o chamador esperando — ele depende do próprio prazo).
+; Capacidades: 0 = envio, 1 = recepção, ambas no mesmo endpoint.
+    .include "../lib/abi.inc"
+    .org USER_TEXT
+_start:
+    li s1, 0
+loop:
+    addi s1, s1, 1
+    li a1, SYS_SEND
+    li a2, 0
+    mov a3, s1
+    li t1, 0                    ; paciência zero: não espera
+    sys
+    li a1, SYS_RECV
+    li a2, 1
+    li t1, 0
+    sys
+    bnp a1, 1f
+    bz t1, 1f                   ; sem recibo: era um send simples
+    mov s2, t1
+    li t2, 3
+    rem t3, s1, t2              ; resto centrado em {−1, 0, +1}
+    bz t3, 1f
+    li a1, SYS_REPLY
+    mov a2, s2
+    mov a3, s1
+    sys
+1:  li a1, SYS_YIELD
+    sys
+    j loop

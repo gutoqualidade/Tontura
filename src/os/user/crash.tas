@@ -1,0 +1,13 @@
+; TENERURA — tarefa defeituosa: escreve pelo ponteiro nulo.
+; (A página 0, centrada no endereço 0, nunca é mapeada.)
+    .include "../lib/abi.inc"
+    .org USER_TEXT
+_start:
+    li a2, 'x'
+    call putc
+    st a2, 0(zr)
+    li a2, 'y'                  ; nunca executa
+    call putc
+    li a2, 0
+    j exit
+    .include "../lib/ulib.inc"

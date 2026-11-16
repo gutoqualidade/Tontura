@@ -1,0 +1,7 @@
+# TENERURA — demonstração 1: duas tarefas conversando, uma que falha e uma
+# que tenta monopolizar o processador.
+kernel ../kernel/kernel.tas
+task crash ../user/crash.tas con:8=0
+task spin  ../user/spin.tas
+task ping  ../user/ping.tas send:0=1/7 con:8=0
+task pong  ../user/pong.tas recv:0=1

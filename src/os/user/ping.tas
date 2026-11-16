@@ -1,0 +1,43 @@
+; TENERURA — cliente de exemplo: chama o servidor `count` vezes (10 por
+; padrão), confere e soma as respostas, imprime o total e manda o
+; servidor encerrar. Resposta esperada a i: i+1; soma = n(n+1)/2 + n.
+; Capacidade 0 = lado emissor do endpoint do servidor; 8 = console.
+    .include "../lib/abi.inc"
+    .org USER_TEXT
+_start:
+    la t1, count
+    ld s3, 0(t1)
+    li s1, 1
+    li s2, 0
+1:  li a1, SYS_CALL
+    li a2, 0
+    li a3, 1
+    mov a4, s1
+    li t1, FOREVER
+    sys
+    bnp a1, fail
+    addi t1, s1, 1
+    bne a3, t1, fail            ; resposta tem de ser i+1
+    add s2, s2, a3
+    addi s1, s1, 1
+    ble s1, s3, 1b
+    la a2, msg
+    call puts
+    mov a2, s2
+    call putdec
+    li a2, '\n'
+    call putc
+    li a1, SYS_CALL             ; op 0: encerra o servidor
+    li a2, 0
+    li a3, 0
+    li t1, FOREVER
+    sys
+    li a2, 0
+    j exit
+fail:
+    li a2, 1
+    j exit
+    .include "../lib/ulib.inc"
+    .data
+msg: .stringz "ping: soma="
+count: .word 10

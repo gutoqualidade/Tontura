@@ -1,0 +1,35 @@
+; ============================================================
+; TENERURA — servidor instável: responde contador+1 e, a cada FAIL_EVERY
+; pedidos, falha de verdade (escrita pelo ponteiro nulo) ANTES de responder.
+; Estado em memória (.data): um reinício pelo supervisor o traz de volta
+; ao estado inicial — é isso que os testes conferem.
+; Capacidade 0 = recepção no endpoint do serviço.
+; ============================================================
+    .include "../lib/abi.inc"
+    .equ FAIL_EVERY, 4
+
+    .org USER_TEXT
+_start:
+loop:
+    li a1, SYS_RECV
+    li a2, 0
+    li t1, FOREVER
+    sys
+    bnp a1, loop
+    mov s1, t1                      ; recibo
+    la t2, served
+    ld t3, 0(t2)
+    addi t3, t3, 1
+    st t3, 0(t2)
+    li t4, FAIL_EVERY
+    blt t3, t4, 1f
+    st zr, 0(zr)                    ; defeito: ponteiro nulo
+1:  addi a3, a3, 1                  ; resposta: valor + 1
+    mov a4, t3                      ; e quantos pedidos esta encarnação já atendeu
+    li a1, SYS_REPLY
+    mov a2, s1
+    sys
+    j loop
+
+    .data
+served: .word 0

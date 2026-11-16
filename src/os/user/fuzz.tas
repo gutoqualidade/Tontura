@@ -1,0 +1,66 @@
+; TENERURA — tarefa caótica: emite chamadas de sistema pseudoaleatórias com
+; argumentos pseudoaleatórios, para sempre. Serve para exercitar o núcleo
+; com entradas hostis (tests/chaos.rs). A semente vem da palavra `seed`,
+; que o arnês de teste reescreve a cada rodada.
+;
+; Gerador: congruente linear módulo 3^27 (período completo: A ≡ 1 mod 3,
+; C não múltiplo de 3). Os trits ALTOS são os de melhor qualidade.
+    .include "../lib/abi.inc"
+    .org USER_TEXT
+_start:
+    la s1, seed
+    ld s2, 0(s1)
+    la s3, 2541865827331
+    la s4, 1442695040888
+    li s5, 0                    ; chamadas feitas
+loop:
+    call rnd
+    mov a9, a1
+    call rnd
+    mov a8, a1
+    call rnd
+    mov a7, a1
+    call rnd
+    mov a6, a1
+    call rnd
+    mov a5, a1
+    call rnd
+    mov a4, a1
+    call rnd
+    mov a3, a1
+    call rnd
+    shi t3, a1, -22             ; paciência pequena com sinal (−121..121): os três regimes
+    call rnd
+    shi a2, a1, -25             ; argumento pequeno (−4..4): slots válidos e inválidos
+    call rnd
+    shi t1, a1, -26
+    bnp t1, 1f
+    mov a2, a1                  ; um terço das vezes: palavra inteira
+1:  call rnd
+    shi t2, a1, -26             ; mais um trit de sorte
+    shi a1, a1, -24             ; número da chamada em −13..13
+    bp t2, 4f                   ; um terço das vezes: mantém o sinal (números negativos)
+    bnn a1, 4f
+    neg a1, a1                  ; senão: |número| — mais chamadas válidas
+4:
+    li t1, SYS_EXIT
+    bne a1, t1, 2f
+    li t2, 300
+    bge s5, t2, 2f              ; só encerra depois de 300 chamadas
+    li a1, SYS_YIELD
+2:  li t1, SYS_SLEEP
+    bne a1, t1, 3f
+    shi a2, a2, -19             ; sleeps curtos (|a2| ≤ 3280): o caótico não se aposenta
+3:  mov t1, t3                  ; paciência (t1 é entrada de SEND/RECV/CALL)
+    addi s5, s5, 1
+    sys
+    j loop
+
+rnd:
+    mul s2, s2, s3
+    add s2, s2, s4
+    mov a1, s2
+    ret
+
+    .data
+seed: .word 1
