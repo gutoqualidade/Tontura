@@ -1,0 +1,3 @@
+# Exemplo: uma tarefa só, escrita em T27R (o .tas foi gerado com tools/t27r.sh).
+kernel ../kernel/kernel.tas
+task ola ../user/ola_t27r.tas con:8=0

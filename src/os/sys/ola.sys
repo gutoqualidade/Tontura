@@ -1,0 +1,3 @@
+# Exemplo: uma tarefa só, em assembly (.tas), com acesso ao console.
+kernel ../kernel/kernel.tas
+task ola ../user/ola.tas con:8=0

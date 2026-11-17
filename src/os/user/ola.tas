@@ -1,0 +1,12 @@
+; Exemplo mínimo: imprime uma linha no console e encerra.
+; Capacidade 8 = console (concedida pelo manifesto com con:8=0).
+    .include "../lib/abi.inc"
+    .org USER_TEXT
+_start:
+    la a2, msg
+    call puts
+    li a2, 0            ; código de saída
+    j exit
+    .include "../lib/ulib.inc"
+    .data
+msg: .stringz "ola, T27!\n"

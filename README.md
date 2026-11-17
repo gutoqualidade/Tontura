@@ -11,10 +11,12 @@ nix-shell shell-rust.nix --run "cd src/t27 && cargo run --release --bin t27 -- s
 
 `t27 sys <manifesto>` monta o núcleo e as tarefas do manifesto e executa. Também:
 `t27 asm <arq.tas>` (listagem) e `t27 run <arq.tas>` (máquina nua).
+Como programar: [`docs/PROGRAMANDO.md`](docs/PROGRAMANDO.md) (instruções, chamadas de sistema, T27R).
 Testes: `tools/t27-test.sh`. T27R → `.tas`: `tools/t27r.sh programa.t27r`.
 
 ## Estrutura
 
+- `docs/` — guia de programação, ISA e linguagem T27R
 - `src/t27/` — emulador, montador, compilador T27R/TIR e testes (Rust, sem dependências)
 - `src/os/kernel/` — micronúcleo (`kernel.tas`, `irq.t27r`)
 - `src/os/lib/` — ABI e bibliotecas de usuário
