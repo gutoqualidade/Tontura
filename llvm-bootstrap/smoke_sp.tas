@@ -1,0 +1,13 @@
+    .include "/home/guto/tenerura/src/os/lib/abi.inc"
+    .org USER_TEXT
+_start:
+    li sp, USER_SP
+    addi sp, sp, -10
+    st lr, 9(sp)
+    li t1, 240
+    st t1, 0(sp)
+    ld t1, 0(sp)
+    mov a2, a1
+    ld lr, 9(sp)
+    addi sp, sp, 10
+    ret

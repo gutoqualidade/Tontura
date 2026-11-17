@@ -80,10 +80,8 @@ pub struct SystemImage {
 
 impl SystemImage {
     /// Carrega a imagem na RAM. A máquina deve estar em estado de reset.
-    pub fn load(&self, m: &mut Machine) {
-        for (base, words) in &self.blocks {
-            m.load(*base, words);
-        }
+    pub fn load(&self, m: &mut Machine) -> Result<(), String> {
+        self.blocks.iter().try_for_each(|(base, words)| m.load(*base, words))
     }
 
     pub fn ksym(&self, name: &str) -> i64 {

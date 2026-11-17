@@ -87,7 +87,10 @@ pub fn lower(p: &Program, mode: Mode) -> Result<Module, String> {
     };
     match l.err {
         Some(e) => Err(e),
-        None => Ok(l.m),
+        None => {
+            l.m.canonicalize()?;
+            Ok(l.m)
+        }
     }
 }
 

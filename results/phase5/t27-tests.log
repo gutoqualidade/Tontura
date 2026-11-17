@@ -1,0 +1,184 @@
+
+running 17 tests
+test asm::tests::basic_program_and_labels ... ok
+test asm::tests::data_section_starts_on_page_boundary ... ok
+test asm::tests::expressions ... ok
+test asm::tests::errors_are_reported ... ok
+test asm::tests::disassembly_reassembles_to_same_word ... ok
+test asm::tests::la_splits_digits_exactly ... ok
+test isa::tests::encode_decode_boundaries ... ok
+test asm::tests::local_labels_macros_and_equ ... ok
+test isa::tests::opcode_table_is_consistent ... ok
+test isa::tests::zero_word_is_illegal ... ok
+test isa::tests::register_names_roundtrip ... ok
+test word::tests::constants ... ok
+test word::tests::divrem_centered ... ok
+test word::tests::shift_matches_spec_examples ... ok
+test word::tests::wrap_window_boundaries ... ok
+test word::tests::trits_roundtrip_and_field ... ok
+test isa::tests::fast_decode_equals_reference_decode ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 1 test
+test hostile_tasks_cannot_break_kernel_or_victims ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.56s
+
+
+running 1 test
+test kernel_instruction_coverage_and_costs ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+
+
+running 27 tests
+test image_builder_rejects_inconsistent_configurations ... ok
+test invalid_requests_are_refused_not_fatal ... ok
+test kernel_fault_is_fail_stop ... ok
+test lone_receiver_blocks_forever_and_system_reports_it ... ok
+test kill_and_restart_wake_dependents ... ok
+test restarted_task_is_indistinguishable_from_fresh ... ok
+test killed_driver_is_restarted_and_service_resumes ... ok
+test boots_and_two_tasks_communicate ... ok
+test receipts_are_bound_to_the_receiving_server ... ok
+test replies_can_be_deferred_and_receipts_are_single_use ... ok
+test kernel_refuses_bad_boot_table_and_out_of_memory ... ok
+test ipc_timeouts_bound_every_wait ... ok
+test new_task_starts_with_clean_registers ... ok
+test messages_arrive_intact_in_fifo_order_with_badges ... ok
+test pending_death_notices_are_collected_once_in_order ... ok
+test sleepers_wake_in_deadline_order_and_oversized_sleep_is_clamped ... ok
+test receivers_are_served_in_arrival_order ... ok
+test server_death_wakes_blocked_caller_with_error ... ok
+test capabilities_cannot_be_forged ... ok
+test clock_wraparound_is_harmless ... ok
+test preemption_keeps_contexts_and_lets_victims_finish ... ok
+test garbage_ram_at_boot_changes_nothing ... ok
+test supervisor_restarts_failing_service_and_client_recovers ... ok
+test user_level_driver_gets_interrupts_as_messages ... ok
+test every_fault_class_kills_only_the_offender ... ok
+test fault_in_one_task_does_not_compromise_the_others ... ok
+test context_survives_thousands_of_preemptions ... ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+
+running 12 tests
+test timer_interrupt_preempts_user_loop ... ok
+test balanced_semantics_visible_at_isa_level ... ok
+test double_fault_stops_instead_of_spinning ... ok
+test arithmetic_loop_and_halt ... ok
+test wfi_fast_forwards_to_timer_and_idle_is_detected ... ok
+test hello_console ... ok
+test illegal_instruction_traps_precisely ... ok
+test zero_register_and_call_ret ... ok
+test user_mode_runs_translated_and_syscall_traps ... ok
+test csr_validation ... ok
+test user_faults_are_precise_and_classified ... ok
+test user_cannot_reach_physical_memory_outside_its_mapping ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+
+running 2 tests
+test real_kernel_passes_every_detector ... ok
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.02s
+     Running unittests src/lib.rs (target/debug/deps/tenerura_t27-d2ba5ca93bc2bf5d)
+     Running unittests src/bin/isa_cases.rs (target/debug/deps/isa_cases-a2f92a04bf90d293)
+     Running unittests src/bin/t27.rs (target/debug/deps/t27-ece2886dfc7f9ebc)
+     Running tests/chaos.rs (target/debug/deps/chaos-31525b768131a3c2)
+caos: 200 rodadas, 354605 chamadas de sistema, 399 falhas contidas, 6241 reinícios pedidos, 362314 saídas do núcleo verificadas
+caos: chamadas por número (último = inválido): [48733, 42562, 72662, 42703, 43224, 681, 12384, 12576, 16002, 12517, 12558, 38003]
+caos: falhas por causa (índice = −causa): [0, 20, 181, 104, 36, 35, 23, 0]
+     Running tests/coverage.rs (target/debug/deps/coverage-f99d397c6b3a9667)
+núcleo: 1028 palavras de texto, 1240 de dados; cobertura de instruções 99.81% (2 não executadas)
+  não executada   496: jal zr, 493                  | j 9b
+  não executada  1027: jal zr, 1027                 | 1:  j 1b
+IPC call/reply (ida e volta): 717.0 instruções de núcleo + 22.0 de usuário
+pilha do núcleo: profundidade máxima observada 24 palavras
+maior trecho não preemptível do núcleo (trap → retorno): 527 passos; com reinício de tarefa: 8621 passos
+     Running tests/kernel.rs (target/debug/deps/kernel-206171a43d285939)
+     Running tests/machine.rs (target/debug/deps/machine-dccf017b9db547f4)
+     Running tests/mutants.rs (target/debug/deps/mutants-8dbe7183f17c1953)
+mutante DETECTADO  chamada sem limite superior                      ← pedidos inválidos: o núcleo tocou memória de usuário 59380 vez(es) fora de boot/reinício
+mutante DETECTADO  chamada sem limite inferior                      ← pedidos inválidos: o núcleo tocou memória de usuário 58613 vez(es) fora de boot/reinício
+mutante DETECTADO  send sem conferir o tipo da capacidade           ← pedidos inválidos: resultados [1, -98, -98, -98, -98, 2, -99, -99, -96, -98, 1, -99, -96, -98, -98, 0], esperado [-98, -98, -98, -98, -98, -98, -99, -99, -96, -98, 1, -99, -96, -98, -98, 0]
+mutante DETECTADO  recv sem conferir o tipo da capacidade           ← pedidos inválidos: resultados [-98, 0, -98, -98, -98, -98, -99, -99, -96, -98, 1, -99, -96, -98, -98, 0], esperado [-98, -98, -98, -98, -98, -98, -99, -99, -96, -98, 1, -99, -96, -98, -98, 0]
+mutante DETECTADO  console sem conferir capacidade                  ← pedidos inválidos: resultados [-98, -98, -98, -98, -98, -98, -99, -99, -96, 108, 1, -99, -96, -98, -98, 0], esperado [-98, -98, -98, -98, -98, -98, -99, -99, -96, -98, 1, -99, -96, -98, -98, 0]
+mutante DETECTADO  operação de tarefa sem conferir capacidade       ← caos: rodada 0: pong não concluiu: estado -9 exit 0 causa -9
+mutante DETECTADO  reconhecimento de irq sem conferir capacidade    ← pedidos inválidos: PÂNICO do núcleo: código 1
+mutante DETECTADO  slot de capacidade sem limite superior           ← pedidos inválidos: PÂNICO do núcleo: código 1
+mutante DETECTADO  slot de capacidade sem limite inferior           ← forja de capacidade: alguma capacidade forjada foi aceita
+mutante DETECTADO  morte não avisa quem aguardava resposta          ← servidor morto: I3: cliente aguarda resposta de servidor, que morreu
+mutante DETECTADO  fila de receptores invertida (LIFO)              ← fifo de receptores: r3, r2, r1 receberam (3, 2, 1) (esperado (1, 2, 3))
+mutante DETECTADO  fila de emissores invertida (LIFO)               ← fifo+selos: receptor viu [11, 22, 33, 1001, 1002, 1003, 0, 3812798742493, 26, 44, 1004], esperado [33, 22, 11, 1003, 1002, 1001, 0, 3812798742493, 26, 44, 1004]
+mutante DETECTADO  selo não entregue (emissor bloqueado)            ← fifo+selos: receptor viu [0, 0, 0, 1003, 1002, 1001, 0, 3812798742493, 26, 44, 1004], esperado [33, 22, 11, 1003, 1002, 1001, 0, 3812798742493, 26, 44, 1004]
+mutante DETECTADO  selo não entregue (receptor esperando)           ← fifo+selos: receptor viu [33, 22, 11, 1003, 1002, 1001, 0, 3812798742493, 26, 0, 1004], esperado [33, 22, 11, 1003, 1002, 1001, 0, 3812798742493, 26, 44, 1004]
+mutante DETECTADO  entrega direta não acorda o receptor             ← ping-pong: parada Halted(3)
+mutante DETECTADO  mensagem truncada (falta uma palavra)            ← fifo+selos: receptor viu [33, 22, 11, 1003, 1002, 1001, 0, 0, 26, 44, 1004], esperado [33, 22, 11, 1003, 1002, 1001, 0, 3812798742493, 26, 44, 1004]
+mutante DETECTADO  chamada não avança o PC                          ← ping-pong: parada StepLimit
+mutante DETECTADO  recibo de send simples não zerado                ← fifo+selos: receptor viu [33, 22, 11, 1003, 1002, 1001, 0, 3812798742493, 25, 44, 1004], esperado [33, 22, 11, 1003, 1002, 1001, 0, 3812798742493, 26, 44, 1004]
+mutante DETECTADO  reply aceita recibo de chamador alheio           ← recibo forjado: 1 resposta(s) forjada(s) aceita(s)
+mutante DETECTADO  reply não confere o recibo                       ← resposta adiada: c1 recebeu 1003 (esperado 1001)
+mutante DETECTADO  prazos nunca vencem                              ← fifo+selos: parada StepLimit
+mutante DETECTADO  paciência ignorada (espera sempre para sempre)   ← sleep: paciência gigante: parada Halted(3)
+mutante DETECTADO  prazo não desarmado ao acordar por evento        ← supervisão: I4: client tem prazo armado sem estar esperando (estado 1)
+mutante DETECTADO  carimbo pode ser zero                            ← ping-pong: volta dos carimbos: I6: ping espera com carimbo zero
+mutante DETECTADO  paciência zero bloqueia a recepção               ← prazos de IPC: 100 tentativas sem espera levaram 280784 passos (cederam o processador?)
+mutante DETECTADO  paciência zero bloqueia o envio                  ← prazos de IPC: 100 tentativas sem espera levaram 280384 passos (cederam o processador?)
+mutante DETECTADO  sleep sem teto                                   ← sleep: sleep gigante: tempo final 3812798753443
+mutante DETECTADO  vencimento por comparação direta (não modular)   ← volta do relógio: sleeper: estado -9 exit 1 (1 = acordou cedo, 2 = tarde)
+mutante DETECTADO  registrador não salvo na entrada                 ← preempção+contexto: guardião de registradores: estado -9 exit 1
+mutante DETECTADO  registrador não restaurado na saída              ← ping-pong: I2: registrador 5 restaurado errado para ping
+mutante DETECTADO  t4 do usuário não salvo                          ← preempção+contexto: guardião de registradores: estado -9 exit 1
+mutante DETECTADO  pilha mapeada com execução                       ← ping-pong: I8: página -1 de ping gravável e executável
+mutante DETECTADO  alocador devolve sempre o mesmo quadro           ← ping-pong: I8: tarefa ping: raiz[-1] = 3649 não é ponteiro de tabela
+mutante DETECTADO  quadros não são zerados                          ← ping-pong: I1: tarefa ping com estado inválido 0
+mutante DETECTADO  fatia nunca renovada                             ← ping-pong: parada StepLimit
+mutante DETECTADO  timer nunca habilitado                           ← ping-pong: I11: máscara da máquina 0 ≠ cópia do núcleo 1
+mutante DETECTADO  aviso de morte nunca enviado                     ← avisos de morte pendentes: parada Halted(3)
+mutante DETECTADO  zumbi colhido continua zumbi                     ← avisos de morte pendentes: supervisor viu (-5, 1, 0, 42, 0, -5, 1, 0, 1), esperado (-5, 1, 0, 42, 0, -6, 2, -4, 0)
+mutante DETECTADO  reinício não avisa dependentes                   ← matar/reiniciar avisa dependentes: parada Halted(3)
+mutante DETECTADO  reinício não recarrega os dados                  ← ping-pong: parada Halted(3)
+mutante DETECTADO  reinício não zera quadros reaproveitados         ← reinício limpo: 2º aviso: causa 0 código 3 (≠ 0 = algo ficou sujo)
+mutante DETECTADO  reinício não zera os registradores               ← reinício limpo: 2º aviso: causa 0 código 1 (≠ 0 = algo ficou sujo)
+mutante DETECTADO  reinício não conta a geração                     ← supervisão: geração do serviço: 0
+mutante DETECTADO  matar não mata                                   ← matar/test every_planted_kernel_defect_is_detected ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.64s
+
+
+running 3 tests
+test field_extraction_matches_digit_slices ... ok
+test random_pairs_match_audited_alu ... ok
+test boundary_cross_product_matches_audited_alu ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+reiniciar avisa dependentes: parada Halted(3)
+mutante DETECTADO  linha não mascarada ao entregar a interrupção    ← supervisão: parada StepLimit; saída "[sup] tarefa 2 falhou, causa -5: reinicio 1\n[sup] tarefa 2 falhou, causa -5: reinicio 2\n[sup] tarefa 2 falhou, causa -5: reinicio 3\ncliente: pedidos concluidos 10, repeticoes 3\n[sup] tarefa 3 saiu com codigo 0\n"
+mutante DETECTADO  reconhecimento não reabilita a linha             ← driver+interrupção: saída "ABC"
+mutante DETECTADO  interrupção pendente nunca entregue no recv      ← driver+interrupção: saída "TERNA"
+mutante DETECTADO  ocioso desliga apesar de haver driver vivo       ← supervisão: parada Halted(3); saída "[sup] tarefa 2 falhou, causa -5: reinicio 1\n[sup] tarefa 2 falhou, causa -5: reinicio 2\n[sup] tarefa 2 falhou, causa -5: reinicio 3\ncliente: pedidos concluidos 10, repeticoes 3\n[sup] tarefa 3 saiu com codigo 0\n"
+mutante DETECTADO  driver morto mantém a linha habilitada           ← driver morto e reiniciado: I11: linha 2 habilitada sem driver vivo
+mutante DETECTADO  dispositivo mapeado com execução                 ← supervisão: I8: página 100 de condrv gravável e executável
+     Running tests/word_diff.rs (target/debug/deps/word_diff-624457e732d5500f)
+   Doc-tests tenerura_t27
+exit=0

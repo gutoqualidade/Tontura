@@ -1,0 +1,6 @@
+# TENERURA — imagem mínima para o teste da Fase 3 estendida (string e array
+# globais, ponteiro como parâmetro, índice variável, GEP constante).
+# Núcleo real + uma tarefa de usuário. Sem capacidades: o programa não
+# imprime nada, só calcula e sai com o código de retorno de main().
+kernel /home/guto/tenerura/src/os/kernel/kernel.tas
+task teste4 ./teste4.tas

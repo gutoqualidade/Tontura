@@ -23,7 +23,8 @@
 use crate::word::M27;
 
 pub const MAGIC: [u8; 4] = *b"TIR\0";
-pub const VERSION: u32 = 2;
+/// v3 (2026-11-17): `extra` e `strings` em ordem canônica (docs/13 §G)
+pub const VERSION: u32 = 3;
 /// magic + versão + flags + 6 contagens + entrada, tudo u32
 pub const HEADER_BYTES: usize = 40;
 /// `entry` de um módulo-biblioteca (sem `main`): núcleo, bibliotecas
@@ -428,6 +429,48 @@ impl Module {
         }
         Ok(m)
     }
+
+    /// Reescreve `extra` na ordem canônica que a validação exige: por
+    /// função, a assinatura e depois as listas das instruções em ordem de
+    /// índice. O `lower` cria cada lista quando fecha a construção.
+    pub fn canonicalize(&mut self) -> Result<(), String> {
+        let old = std::mem::take(&mut self.extra);
+        for f in 0..self.funcs.len() {
+            let s = self.funcs[f].sig as usize;
+            let h = old.get(s..s + 2).ok_or("assinatura fora de extra")?;
+            let n = 2 + h[0] as usize + h[1] as usize;
+            self.funcs[f].sig = self.extra.len() as u32;
+            self.extra.extend_from_slice(old.get(s..s + n).ok_or("assinatura fora de extra")?);
+            let Func { ifirst, icount, .. } = self.funcs[f];
+            for i in &mut self.insts[ifirst as usize..(ifirst + icount) as usize] {
+                let len = list_len(&old, i)?.unwrap_or(0);
+                if len > 0 {
+                    let b = i.b as usize;
+                    i.b = self.extra.len() as u32;
+                    self.extra.extend_from_slice(old.get(b..b + len).ok_or("lista fora de extra")?);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Tamanho da lista em `extra` de uma instrução (`None`: o opcode não tem
+/// lista e `b` é outro campo). Fonte única do tamanho; o `switch` lê o
+/// próprio cabeçalho `[ncases, narms]`.
+pub fn list_len(extra: &[u32], i: &Inst) -> Result<Option<usize>, String> {
+    let n = i.n as usize;
+    Ok(Some(match i.op {
+        Op::Call | Op::Intr | Op::Yield => n,
+        Op::If => 2 + n,
+        Op::While => 2 + 2 * n,
+        Op::Switch => {
+            let b = i.b as usize;
+            let h = extra.get(b..b + 2).ok_or_else(|| format!("extra[{b}..+2] fora da tabela"))?;
+            3 + 3 * h[0] as usize + h[1] as usize + n
+        }
+        _ => return Ok(None),
+    }))
 }
 
 // ── paralelismo determinístico ─────────────────────────────────────────
@@ -497,6 +540,22 @@ pub fn validate_module(m: &Module) -> Result<(), String> {
     // um espaço de nomes só: no .tas funções viram `fn_<nome>` e dados `<nome>`,
     // mas nomes iguais entre os dois confundiriam quem lê
     let mut names = std::collections::HashSet::new();
+    // nomes ladrilham `strings` em ordem: globais, depois funções
+    let mut at = 0u64;
+    let spans = m.globals.iter().map(|g| (g.name, g.name_len)).chain(m.funcs.iter().map(|f| (f.name, f.name_len)));
+    for (k, (off, len)) in spans.enumerate() {
+        if off as u64 != at {
+            return Err(format!("strings: nome #{k} em {off}, a ordem canônica pede {at}"));
+        }
+        at += len as u64;
+    }
+    if at != m.strings.len() as u64 {
+        return Err(format!("strings: {} bytes, os nomes cobrem {at}", m.strings.len()));
+    }
+    // listas ladrilham `extra` função a função; validate_func confere cada faixa
+    if m.funcs.first().map_or(!m.extra.is_empty(), |f| f.sig != 0) {
+        return Err("extra: a assinatura da primeira função tem de abrir a tabela".into());
+    }
     for (gi, g) in m.globals.iter().enumerate() {
         let n = name("global", gi, g.name, g.name_len)?;
         if !names.insert(n) || g.size == 0 || g.size > SLOT_MAX {
@@ -554,11 +613,35 @@ struct V<'m> {
 pub fn validate_func(m: &Module, fi: usize) -> Result<(), String> {
     let f = &m.funcs[fi];
     let (params, ret) = m.sig(fi);
-    // nvals vem do arquivo: limitá-lo pelo que a função pode definir antes
-    // de alocar, senão 4 bytes corrompidos pedem gigabytes
-    let rs = &m.regions[f.rfirst as usize..(f.rfirst + f.rcount) as usize];
-    let is = &m.insts[f.ifirst as usize..(f.ifirst + f.icount) as usize];
-    let most: u64 = rs.iter().map(|r| r.nargs as u64).sum::<u64>() + is.iter().map(|i| (i.n as u64).max(1)).sum::<u64>();
+    // As listas da função ladrilham extra[sig..sig da próxima): assinatura,
+    // depois uma lista por instrução, em ordem, sem buraco nem partilha.
+    // Assim cada valor definível corresponde a palavras que existem no
+    // arquivo, e nvals (que vem do arquivo) fica limitado antes de alocar.
+    // O limite antigo somava Region.nargs, também do arquivo (F14).
+    let end = m.funcs.get(fi + 1).map_or(m.extra.len() as u64, |g| g.sig as u64);
+    let mut at = f.sig as u64 + 2 + (params.len() + ret.len()) as u64;
+    let mut most = params.len() as u64;
+    for (k, i) in m.insts[f.ifirst as usize..(f.ifirst + f.icount) as usize].iter().enumerate() {
+        let k = f.ifirst as usize + k;
+        match list_len(&m.extra, i).map_err(|e| format!("instrução {k}: {e}"))? {
+            Some(len) if len > 0 && i.b as u64 != at => {
+                return Err(format!("instrução {k}: lista em extra[{}], a ordem canônica pede {at}", i.b));
+            }
+            Some(len) => at += len as u64,
+            None => {}
+        }
+        // valores que a instrução define: resultados e, no while, os
+        // argumentos das regiões de condição e de corpo
+        most += match i.op {
+            Op::If | Op::Switch => i.n as u64,
+            Op::While => 3 * i.n as u64,
+            Op::Yield | Op::Cond | Op::Return | Op::Exit | Op::Store | Op::Trap => 0,
+            _ => 1,
+        };
+    }
+    if at != end {
+        return Err(format!("extra: listas da função terminam em {at}, a faixa dela vai até {end}"));
+    }
     if f.nvals as u64 > most {
         return Err(format!("nvals = {} além dos {most} definíveis", f.nvals));
     }

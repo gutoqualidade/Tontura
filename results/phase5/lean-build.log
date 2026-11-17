@@ -1,0 +1,22 @@
+# lake build (alvo padrão agora inclui a biblioteca TeneruraProofs: Basic, Phase3, Phase4A, Phase5)
+Build completed successfully (11 jobs).
+# sorry nos fontes:
+TeneruraProofs/Phase3.lean:0
+TeneruraProofs/Phase5.lean:0
+TeneruraProofs/Phase4A.lean:0
+TeneruraProofs/Basic.lean:0
+# axiomas usados (propext/Quot.sound/Classical.choice são os padrão do Lean; nenhum sorryAx):
+'Tenerura.Phase5.cdiv_unique' depends on axioms: [propext, Quot.sound]
+'Tenerura.Phase5.cdiv_exists' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Tenerura.Phase5.cdiv_tie_toward_zero' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Tenerura.Phase5.div_pow3_drops_low_digits' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Tenerura.Phase5.page_split_exists' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Tenerura.Phase5.page_split_unique' depends on axioms: [propext, Quot.sound]
+'Tenerura.Phase5.split_hi_range' depends on axioms: [propext, Quot.sound]
+'Tenerura.Phase5.serial_difference_exact' depends on axioms: [propext, Quot.sound]
+'Tenerura.Phase4A.addC_spec' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Tenerura.Phase4A.add_overflow_iff_zero' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Tenerura.Phase4A.shl_overflow_iff' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Tenerura.Phase4A.bvalI_inj' depends on axioms: [propext, Classical.choice, Quot.sound]
+'Tenerura.Phase4A.window_unique' depends on axioms: [propext, Quot.sound]
+'Tenerura.Phase3.fixed_point_odd_unique' depends on axioms: [propext, Quot.sound]

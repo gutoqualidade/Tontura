@@ -1,0 +1,24 @@
+TENERURA Fase 5 — medições do emulador (uma máquina, uma rodada; ns por operação: mínimo / média de 5)
+semente 0x5eed2026af5a; 65536 pares de palavras de 27 trits uniformes na janela
+
+E1 — representação da palavra (27 trits)
+operação                              i64 (valor)       2 planos        [i8;27]  Vec<i8> (ALU)
+soma (add)                            1.25 / 1.25  14.00 / 14.22  66.63 / 68.01  84.36 / 85.76
+comparação (cmp)                      0.92 / 0.94    2.24 / 2.24    4.90 / 4.92    7.08 / 7.32
+multiplicação (mul, palavra baixa)  30.18 / 30.81              —              — 673.57 / 681.12
+deslocamento por k ∈ [−26, 26]      19.97 / 20.26    4.72 / 4.76              —              —
+mínimo trit a trit (kmin)           91.25 / 91.58    0.42 / 0.43              —              —
+palavra → índice (endereço)           0.23 / 0.23  13.81 / 14.27  16.14 / 16.16              —
+
+E3 — emulador numa carga real (núcleo v1 + demonstração 2 com entrada, e demonstração 1)
+vazão: 24.0 milhões de passos/s (melhor de 6; 20306390 passos por rodada)
+mistura dinâmica (demo 2, 306389 instruções): soma/sub 28.6%  desvio 23.0%  memória 37.9%  desloc. 0.5%  mul/div 0.02%  lógica trit a trit 0.00%  outras 10.0%
+custo ponderado por instrução só de aritmética+índices: i64 0.88 ns | 2 planos 23.55 ns | [i8;27] 42.44 ns
+decodificação de instrução (campos por divisão por potências de 3): 22.71 / 22.82 ns
+
+E2 — separar endereço em (página, deslocamento)
+no hospedeiro binário:  página 3⁶ = 729 (centrada): 2.05 / 2.23 ns | página 2¹⁰ = 1024 (máscara): 0.46 / 0.58 ns | página 1000: 1.87 / 1.93 ns
+em hardware ternário (modelo: células somadoras de 1 trit avaliadas): página 3⁶: 0 (os campos são os próprios dígitos) | página 1024: 432 | página 1000: 432
+  (modelo de contagem sobre divisão longa restauradora; não é síntese de circuito)
+
+núcleo: 1028 palavras de código, 1240 de dados estáticos; Word = 8 bytes no emulador (42,8 bits úteis de 64)

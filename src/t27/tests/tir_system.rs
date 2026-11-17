@@ -39,7 +39,7 @@ fn bare(src: &str, asm: &str, data: &str) -> (Stop, String) {
     let p = assemble_str(&full, "nua", None).unwrap_or_else(|e| panic!("{e}\n{full}"));
     let mut m = Machine::new(DEFAULT_RAM_HALF);
     for s in &p.segments {
-        m.load(s.base, &s.words);
+        m.load(s.base, &s.words).unwrap();
     }
     m.pc = Word::lit(p.entry);
     (m.run(1_000_000), m.console_text())

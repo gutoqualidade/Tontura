@@ -1,0 +1,5 @@
+# TENERURA — imagem mínima para executar o programa gerado pelo tradutor LLVM.
+# Núcleo real + uma tarefa de usuário. Sem capacidades: o programa não
+# imprime nada, só calcula e sai com o código de retorno de main().
+kernel /home/guto/tenerura/src/os/kernel/kernel.tas
+task soma ./soma.tas

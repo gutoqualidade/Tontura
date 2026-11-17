@@ -199,7 +199,7 @@ fn every_short_action_sequence_keeps_the_kernel_invariants() {
     let img = build_system(&kernel(), &tasks).unwrap();
     // RAM pequena: cada nó da busca copia a máquina inteira
     let mut m = Machine::new(30 * 729 + 364);
-    img.load(&mut m);
+    img.load(&mut m).unwrap();
     let kc = KCheck::new(&img, &m);
     let free_start = m.peek(img.ksym("boot_table") + img.ksym("BT_FREE")).unwrap().val();
     let mut ex = Explorer { img, kc, free_start, nodes: 0, terminals: 0, exits: 0, states: HashSet::new() };

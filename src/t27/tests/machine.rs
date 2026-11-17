@@ -15,7 +15,7 @@ fn boot(src: &str) -> Machine {
     let p = assemble_str(&full, "teste", None).unwrap_or_else(|e| panic!("{e}"));
     let mut m = Machine::new(DEFAULT_RAM_HALF);
     for s in &p.segments {
-        m.load(s.base, &s.words);
+        m.load(s.base, &s.words).unwrap();
     }
     m.pc = Word::lit(p.entry);
     m
@@ -183,7 +183,7 @@ fn user_setup(user_src: &str) -> (Machine, PageTables) {
     let u = assemble_str(&format!("{PRELUDE}\n.org 365\n{user_src}"), "usuario", None)
         .unwrap_or_else(|e| panic!("{e}"));
     let mut m = Machine::new(DEFAULT_RAM_HALF);
-    m.load(0, &k.text().words);
+    m.load(0, &k.text().words).unwrap();
     let mut pt = PageTables::new(&mut m, 10 * PAGE_SIZE, 11 * PAGE_SIZE);
     // página virtual 1 (código, RX) → quadro 20; página 2 (dados, RW) → quadro 21
     // página −1 (pilha, RW) → quadro 22
@@ -191,10 +191,10 @@ fn user_setup(user_src: &str) -> (Machine, PageTables) {
     pt.map(&mut m, 2, 21 * PAGE_SIZE, PTE_LEAF + PTE_W);
     pt.map(&mut m, -1, 22 * PAGE_SIZE, PTE_LEAF + PTE_W);
     assert!(u.text().words.len() as i64 <= PAGE_SIZE);
-    m.load(20 * PAGE_SIZE - PAGE_HALF, &u.text().words);
+    m.load(20 * PAGE_SIZE - PAGE_HALF, &u.text().words).unwrap();
     if let Some(d) = u.data() {
         assert_eq!(d.base, 2 * PAGE_SIZE - PAGE_HALF);
-        m.load(21 * PAGE_SIZE - PAGE_HALF, &d.words);
+        m.load(21 * PAGE_SIZE - PAGE_HALF, &d.words).unwrap();
     }
     (m, pt)
 }
@@ -327,10 +327,10 @@ fn timer_interrupt_preempts_user_loop() {
     let k = assemble_str(&kernel, "k", None).unwrap();
     let u = assemble_str(".org 365\n1: addi a5, a5, 1\n j 1b", "u", None).unwrap();
     let mut m = Machine::new(DEFAULT_RAM_HALF);
-    m.load(0, &k.text().words);
+    m.load(0, &k.text().words).unwrap();
     let mut pt = PageTables::new(&mut m, 10 * PAGE_SIZE, 11 * PAGE_SIZE);
     pt.map(&mut m, 1, 20 * PAGE_SIZE, PTE_LEAF + PTE_X);
-    m.load(20 * PAGE_SIZE - PAGE_HALF, &u.text().words);
+    m.load(20 * PAGE_SIZE - PAGE_HALF, &u.text().words).unwrap();
     assert_eq!(m.run(100_000), Stop::Halted(cause::IRQ_TIMER));
     assert!(m.reg(3).val() >= 500, "interrompeu no tempo programado");
     assert!(m.reg(5).val() > 200, "o usuário chegou a rodar");
@@ -393,4 +393,15 @@ fn csr_validation() {
         ));
         assert_eq!(m.run(1000), Stop::Halted(cause::ILLEGAL), "{bad}");
     }
+}
+
+#[test]
+fn image_outside_ram_is_refused_without_writing() {
+    // F10 (verificação 2026-11-17): `t27 run` entrava em pânico (assert)
+    let mut m = Machine::new(100);
+    let e = m.load(100, &[Word::lit(7), Word::lit(8)]).unwrap_err();
+    assert!(e.contains("fora da RAM"), "{e}");
+    assert_eq!(m.peek(100), Some(Word::ZERO), "carga recusada escreveu");
+    m.load(-100, &[Word::lit(7)]).unwrap();
+    assert_eq!(m.peek(-100), Some(Word::lit(7)));
 }

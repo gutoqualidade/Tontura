@@ -8,6 +8,11 @@ description = "TENERURA — máquina T27 (ISA ternária balanceada de 27 trits):
 # Zero dependências externas (mesma política de src/rust): PRNG próprio com
 # sementes registradas; nada de crates de terceiros.
 
+[dev-dependencies]
+# Oráculo: a ALU auditada da Fase 4A (dígitos Vec<i8>) serve de referência
+# diferencial para a aritmética de palavra do emulador. Só nos testes.
+tenerura-trits = { path = "../rust" }
+
 [profile.release]
 lto = true
 codegen-units = 1

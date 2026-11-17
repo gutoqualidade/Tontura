@@ -1,0 +1,10 @@
+name = "TeneruraProofs"
+version = "0.1.0"
+defaultTargets = ["teneruraproofs"]
+
+[[lean_lib]]
+name = "TeneruraProofs"
+
+[[lean_exe]]
+name = "teneruraproofs"
+root = "Main"

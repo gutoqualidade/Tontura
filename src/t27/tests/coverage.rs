@@ -56,7 +56,7 @@ fn kernel_instruction_coverage_and_costs() {
         assert_eq!(run_cov(&mut s.m, 100_000), Stop::Halted(-s.k("PANIC_BOOT")), "zero tarefas");
         let img = build_system(&k, &[task("gordo", user("spin")).stack(200)]).unwrap();
         let mut m = Machine::new(40 * 729 + 364);
-        img.load(&mut m);
+        img.load(&mut m).unwrap();
         assert_eq!(run_cov(&mut m, 2_000_000), Stop::Halted(-img.ksym("PANIC_OOM")));
         let mut s = boot(victims());
         let at = s.k("do_syscall");

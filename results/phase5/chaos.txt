@@ -1,0 +1,3 @@
+caos: 200 rodadas, 354605 chamadas de sistema, 399 falhas contidas, 6241 reinícios pedidos, 362314 saídas do núcleo verificadas
+caos: chamadas por número (último = inválido): [48733, 42562, 72662, 42703, 43224, 681, 12384, 12576, 16002, 12517, 12558, 38003]
+caos: falhas por causa (índice = −causa): [0, 20, 181, 104, 36, 35, 23, 0]

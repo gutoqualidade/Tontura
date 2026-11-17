@@ -163,16 +163,27 @@ pub struct ParseError {
     pub msg: String,
 }
 
+/// Recursão do analisador: blocos, parênteses e unários aninhados. Cada
+/// bloco vira uma região do TIR, então fica bem abaixo de `ir::MAX_DEPTH`.
+pub const MAX_NEST: usize = 256;
+/// Profundidade de uma árvore de expressão. Cadeias `a + b + …` crescem
+/// sem recursão aqui, mas os passes seguintes recursam nelas.
+pub const MAX_EXPR: usize = 1024;
+
 pub struct Parser {
     toks: Vec<Token>,
     i: usize,
+    /// recursão corrente (≤ MAX_NEST)
+    nest: usize,
+    /// profundidade da última expressão devolvida (≤ MAX_EXPR)
+    depth: usize,
 }
 
 type R<T> = Result<T, ParseError>;
 
 impl Parser {
     pub fn new(toks: Vec<Token>) -> Self {
-        Parser { toks, i: 0 }
+        Parser { toks, i: 0, nest: 0, depth: 0 }
     }
 
     fn peek(&self) -> &Tok {
@@ -192,6 +203,23 @@ impl Parser {
     fn err<T>(&self, msg: impl Into<String>) -> R<T> {
         let (line, col) = self.pos();
         Err(ParseError { line, col, msg: msg.into() })
+    }
+
+    /// Acima dos limites o t27r morria por estouro de pilha (SIGABRT).
+    fn enter(&mut self) -> R<()> {
+        self.nest += 1;
+        if self.nest > MAX_NEST {
+            return self.err(format!("aninhamento além de {MAX_NEST} níveis (blocos, parênteses, unários)"));
+        }
+        Ok(())
+    }
+
+    fn deeper(&mut self, depth: usize) -> R<()> {
+        self.depth = depth;
+        if depth > MAX_EXPR {
+            return self.err(format!("aninhamento de expressão além de {MAX_EXPR} níveis"));
+        }
+        Ok(())
     }
 
     fn bump(&mut self) -> Tok {
@@ -301,6 +329,7 @@ impl Parser {
 
     fn block(&mut self) -> R<Block> {
         self.expect(&Tok::LBrace, "'{'")?;
+        self.enter()?;
         let mut stmts = Vec::new();
         while self.peek() != &Tok::RBrace {
             if self.peek() == &Tok::Eof {
@@ -309,6 +338,7 @@ impl Parser {
             stmts.push(self.stmt()?);
         }
         self.expect(&Tok::RBrace, "'}'")?;
+        self.nest -= 1;
         Ok(Block { stmts })
     }
 
@@ -428,7 +458,10 @@ impl Parser {
     }
 
     pub fn expr(&mut self) -> R<Expr> {
-        self.or()
+        self.enter()?;
+        let e = self.or()?;
+        self.nest -= 1;
+        Ok(e)
     }
 
     /// `operando (op operando)*` com operadores associativos à esquerda
@@ -436,8 +469,10 @@ impl Parser {
         let mut e = next(self)?;
         while let Some(&(_, op)) = ops.iter().find(|(t, _)| t == self.peek()) {
             let (line, col) = self.pos();
+            let d = self.depth;
             self.bump();
             let r = next(self)?;
+            self.deeper(d.max(self.depth) + 1)?;
             e = Expr::Binary(op, Box::new(e), Box::new(r), line, col);
         }
         Ok(e)
@@ -466,8 +501,10 @@ impl Parser {
             return Ok(e);
         }
         let (line, col) = self.pos();
+        let d = self.depth;
         self.bump();
         let r = self.sum()?;
+        self.deeper(d.max(self.depth) + 1)?;
         Ok(Expr::Binary(BinOp::Cmp, Box::new(e), Box::new(r), line, col))
     }
 
@@ -493,21 +530,28 @@ impl Parser {
             _ => return self.primary(),
         };
         self.bump();
-        Ok(Expr::Unary(op, Box::new(self.unary()?), line, col))
+        self.enter()?;
+        let e = self.unary()?;
+        self.nest -= 1;
+        self.deeper(self.depth + 1)?;
+        Ok(Expr::Unary(op, Box::new(e), line, col))
     }
 
     fn primary(&mut self) -> R<Expr> {
         match self.peek().clone() {
             Tok::Num(v) => {
                 self.bump();
+                self.depth = 1;
                 Ok(Expr::Num(v))
             }
             Tok::True => {
                 self.bump();
+                self.depth = 1;
                 Ok(Expr::Bool(true))
             }
             Tok::False => {
                 self.bump();
+                self.depth = 1;
                 Ok(Expr::Bool(false))
             }
             Tok::LParen => {
@@ -520,22 +564,26 @@ impl Parser {
                 let (line, col) = self.pos();
                 self.bump();
                 if self.eat(&Tok::LParen) {
-                    let mut args = Vec::new();
+                    let (mut args, mut d) = (Vec::new(), 0);
                     if self.peek() != &Tok::RParen {
                         loop {
                             args.push(self.expr()?);
+                            d = d.max(self.depth);
                             if !self.eat(&Tok::Comma) {
                                 break;
                             }
                         }
                     }
                     self.expect(&Tok::RParen, "')'")?;
+                    self.deeper(d + 1)?;
                     Ok(Expr::Call(name, args, line, col))
                 } else if self.eat(&Tok::LBracket) {
                     let i = self.expr()?;
                     self.expect(&Tok::RBracket, "']'")?;
+                    self.deeper(self.depth + 1)?;
                     Ok(Expr::Index(name, Box::new(i), line, col))
                 } else {
+                    self.depth = 1;
                     Ok(Expr::Var(name, line, col))
                 }
             }

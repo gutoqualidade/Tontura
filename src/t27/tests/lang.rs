@@ -409,3 +409,40 @@ fn tipos_errados_sao_recusados() {
         assert!(e.contains(msg), "{src}\n→ {e}");
     }
 }
+
+#[test]
+fn aninhamento_fundo_e_diagnostico_nao_estouro_de_pilha() {
+    // Achado 2026-11-17: 10⁴ parênteses ou `if`s aninhados, ou uma soma de
+    // 10⁵ termos, derrubavam o t27r com estouro de pilha (SIGABRT) — no
+    // analisador recursivo ou nos passes que recursam na árvore.
+    let deep = |n: usize| {
+        [
+            format!("fn main() -> word {{ return {}1{}; }}", "(".repeat(n), ")".repeat(n)),
+            format!("fn main() -> word {{ return {}1; }}", "-".repeat(n)),
+            format!("fn main() -> word {{ let mut x = 0; {} x = 1; {} return x; }}", "if x == 0 { ".repeat(n), "} ".repeat(n)),
+            format!("fn main() -> word {{ return {}; }}", vec!["1"; n].join(" + ")),
+        ]
+    };
+    for src in deep(100_000) {
+        for c in [lang::compile, lang::compile_pilha] {
+            let e = c(&src).expect_err("aninhamento de 10⁵ aceito");
+            assert!(e.msg.contains("aninhamento"), "{}", e.msg);
+        }
+    }
+    // o pior caso aceito cabe na pilha de 2 MB de uma thread de teste:
+    // blocos e parênteses no limite, com a cadeia mais longa por dentro
+    let n = lang::parse::MAX_NEST;
+    let worst = format!(
+        "fn main() -> word {{ let mut x = time(); {} x = {}{}{}; {} return x; }}",
+        "if x != 7 { ".repeat(n / 2 - 2),
+        "(".repeat(n / 2 - 4),
+        vec!["x"; lang::parse::MAX_EXPR].join(" - "),
+        ")".repeat(n / 2 - 4),
+        "} ".repeat(n / 2 - 2)
+    );
+    for src in deep(200).iter().chain([&worst]) {
+        for c in [lang::compile, lang::compile_pilha] {
+            c(src).unwrap_or_else(|d| panic!("{}", d.msg));
+        }
+    }
+}

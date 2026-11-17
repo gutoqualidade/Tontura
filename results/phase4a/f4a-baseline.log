@@ -1,0 +1,43 @@
+warning: unused variable: `n`
+test alu::tests::add_exhaustive_n2_no_overflow ... ok
+test alu::tests::from_i64_canonical_range_and_value ... ok
+test alu::tests::shl_overflow_iff_top_nonzero ... ok
+test alu::tests::shr_is_round_to_nearest ... ok
+test alu::tests::mul_exhaustive_n2 ... ok
+test alu::tests::sign_extension_value_preserving ... ok
+test pack2::tests::buffer_roundtrip_and_reserved_detection ... ok
+test pack2::tests::code_table ... ok
+test pack2::tests::word_reserved_detected ... ok
+test pack3::tests::balanced_value_crosscheck_with_haskell ... ok
+test pack2::tests::word27_roundtrip ... ok
+test pack3::tests::boundaries_match_the_table ... ok
+test pack3::tests::out_of_range_detected ... ok
+test trit::tests::kleene_matches_kleene_tables ... ok
+test trit::tests::lukas_impl_is_tautological ... ok
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test bval_closed_form_values ... ok
+test pack2_exhaustive_byte_roundtrip ... ok
+test pack3_exhaustive_u8_n5 ... ok
+test pack3_exhaustive_u16_n9 ... ok
+test differential_pack2_vs_pack3 ... ok
+test pack2_property_word27 ... ok
+test pack3_property_roundtrip_u32_n20 ... ok
+test pack3_property_roundtrip_u64_n27_and_n40 ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+test edge_cases ... ok
+test exhaustive_neg_n3 ... ok
+test exhaustive_mul_n2_and_flags ... ok
+test exhaustive_shr_shl_n3 ... ok
+test exhaustive_add_sub_cmp_n3 ... ok
+test property_from_i64_window_congruence_uniqueness ... ok
+test property_sign_extension_cross_width ... ok
+test property_shl_overflow_iff_top ... ok
+test property_mul_vs_i128_reference ... ok
+test property_shr_is_round_to_nearest_no_ties ... ok
+test property_cmp_matches_reference ... ok
+test property_add_vs_i128_reference ... ok
+test property_neg_involutive_and_sub ... ok
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.67s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+exit_code=0

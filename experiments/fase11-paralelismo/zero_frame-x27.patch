@@ -1,0 +1,16 @@
+Experimento (só em cópia): desenrolar zero_frame ×27 em src/os/kernel/kernel.tas.
+729 = 27·27, então o laço não tem resto. Resultado: pingr núcleo 31 915 → 20 683
+instruções; zero_frame 17 520 → 6 288; suíte 110/111 (falha só o mutante textual
+"quadros não são zerados" de tests/mutants.rs, cujo trecho-alvo deixa de existir).
+
+ zero_frame:
+     addi t1, a1, -PAGE_HALF
+     addi t2, a1, PAGE_HALF
+ 1:  st zr, 0(t1)
+-    addi t1, t1, 1
++    st zr, 1(t1)
++    ...                              (st zr, k(t1) para k = 2..25)
++    st zr, 26(t1)
++    addi t1, t1, 27                 ; 729 = 27·27: sem resto
+     ble t1, t2, 1b
+     ret

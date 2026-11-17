@@ -1,0 +1,5 @@
+# TENERURA — imagem mínima para o teste da Fase 2 (while + if).
+# Núcleo real + uma tarefa de usuário. Sem capacidades: o programa não
+# imprime nada, só calcula e sai com o código de retorno de main().
+kernel /home/guto/tenerura/src/os/kernel/kernel.tas
+task teste ./teste.tas

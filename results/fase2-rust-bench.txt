@@ -1,0 +1,9 @@
+warning: Nix search path entry '/nix/var/nix/profiles/per-user/root/channels' does not exist, ignoring
+TENERURA bench — N=1000000 trits, aquecimento=1 rodada(s), 5 medições, LTO, release
+A soma-direta-2bits : soma=628 media=6.55ms min=6.50ms trits/s=152.6M bytes/trit=0.250
+B desempacota+soma  : soma=628 media=4.70ms min=4.23ms trits/s=212.6M bytes/trit=0.250
+C denso-base3-n20   : soma=633 media=959.04µs min=930.51µs trits/s=1042.7M bytes/trit=0.200
+NOTA: single-machine, single-run; somas de A e B devem conferir (mesmos dados);
+      C soma conjunto próprio (soma esperada ~0 por simetria dos dados).
+      bytes/trit: A/B = 2 bits/trit = 0,25; C = 1,6 bits/trit = 0,20 (ideal 1,585).
+bench_exit=0

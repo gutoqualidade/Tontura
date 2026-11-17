@@ -1,0 +1,21 @@
+warning: Nix search path entry '/nix/var/nix/profiles/per-user/root/channels' does not exist, ignoring
++++ OK, passed 1000 tests.
++++ OK, passed 1000 tests.
++++ OK, passed 1000 tests.
++++ OK, passed 1000 tests.
++++ OK, passed 1000 tests.
++++ OK, passed 1000 tests.
++++ OK, passed 1000 tests.
++++ OK, passed 1000 tests.
++++ OK, passed 1000 tests.
++++ OK, passed 1000 tests.
++++ OK, passed 1000 tests; 993 discarded.
++++ OK, passed 1000 tests.
++++ OK, passed 1 test.
++++ OK, passed 1 test.
++++ OK, passed 1 test.
++++ OK, passed 1 test.
++++ OK, passed 1 test.
+TODAS AS PROPRIEDADES PASSARAM
+Test suite tenerura-test: PASS
+haskell_exit=0

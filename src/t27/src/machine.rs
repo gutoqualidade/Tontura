@@ -230,11 +230,17 @@ impl Machine {
         }
     }
 
-    /// Carrega um bloco contíguo na RAM a partir de `base`.
-    pub fn load(&mut self, base: i64, words: &[Word]) {
-        for (i, &w) in words.iter().enumerate() {
-            assert!(self.poke(base + i as i64, w), "imagem fora da RAM em {}", base + i as i64);
+    /// Carrega um bloco contíguo na RAM a partir de `base`. Bloco que não
+    /// cabe é recusado inteiro, sem escrever nada (F10: era `assert!`).
+    pub fn load(&mut self, base: i64, words: &[Word]) -> Result<(), String> {
+        let last = base + words.len() as i64 - 1;
+        if !words.is_empty() && (self.ram_index(base).is_none() || self.ram_index(last).is_none()) {
+            return Err(format!("imagem [{base}, {last}] fora da RAM (±{})", self.ram_half));
         }
+        for (i, &w) in words.iter().enumerate() {
+            self.poke(base + i as i64, w);
+        }
+        Ok(())
     }
 
     // ───────────── barramento físico (com dispositivos) ─────────────
@@ -375,10 +381,12 @@ impl Machine {
 
     /// Trap síncrono (falha ou entrada voluntária) na instrução em PC.
     fn fault(&mut self, c: i64, tval: Word) -> Step {
-        // Trap síncrono na PRIMEIRA instrução do tratador, já em modo
-        // núcleo: retomar em TVEC repetiria o mesmo trap para sempre —
-        // a máquina para em vez de girar.
-        if self.kernel && self.pc == self.tvec {
+        // Falha dupla: trap síncrono no núcleo quando o trap corrente já
+        // veio do núcleo (PMODE = núcleo), ou na primeira instrução do
+        // tratador. Retomar em TVEC repetiria a falha — ou desfaria o que o
+        // tratador ainda não salvou (F26: o `csrx` de entrada alternava) —
+        // para sempre: a máquina para em vez de girar.
+        if self.kernel && (self.pmode_kernel || self.pc == self.tvec) {
             return Step::DoubleFault;
         }
         let epc = self.pc;
@@ -578,6 +586,9 @@ impl Machine {
             Op::Eret => {
                 self.kernel = self.pmode_kernel;
                 self.ie = self.pie;
+                // PMODE volta ao modo menos privilegiado: depois do retorno
+                // não há trap em curso, e a regra de falha dupla lê PMODE
+                self.pmode_kernel = false;
                 new_pc = self.epc;
                 result = Step::Eret;
             }

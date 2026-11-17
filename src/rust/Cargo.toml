@@ -1,0 +1,13 @@
+[package]
+name = "tenerura-trits"
+version = "0.1.0"
+edition = "2021"
+description = "TENERURA — representação e compactação de trits (2 bits fixos e base 3 densa)"
+
+[dependencies]
+# Zero dependências externas nesta fase: testes de propriedade usam PRNG próprio
+# com sementes registradas (reprodutibilidade > conveniência).
+
+[profile.release]
+lto = true        # benchmarks medidos com LTO; anotado no relatório
+codegen-units = 1

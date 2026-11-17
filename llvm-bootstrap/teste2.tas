@@ -1,0 +1,202 @@
+; ============================================================
+; GERADO POR tradutor.py — NÃO EDITE À MÃO
+; fonte: teste2.ll
+; convenção: uma palavra de pilha por valor LLVM; sp cresce para baixo
+; Fase 2: + mul, icmp, br (if/else e while)
+; ============================================================
+    .include "/home/guto/tenerura/src/os/lib/abi.inc"
+    .org USER_TEXT
+_start:
+    call main
+    mov a2, a1                  ; código de saída = valor de retorno de main
+    li a1, SYS_EXIT
+    sys
+
+fatorial:
+    addi sp, sp, -14
+    st lr, 13(sp)
+    st a1, 0(sp)
+    ld t1, 0(sp)
+    st t1, 1(sp)
+    li t1, 1
+    st t1, 2(sp)
+    li t1, 2
+    st t1, 3(sp)
+    j L_fatorial__5
+L_fatorial__5:
+    ld t1, 3(sp)
+    st t1, 4(sp)
+    ld t1, 1(sp)
+    st t1, 5(sp)
+    ld t1, 4(sp)
+    ld t2, 5(sp)
+    cmp t3, t1, t2
+    ble t3, zr, L__icmp_fatorial_1
+    li t3, 0
+    j L__icmp_fatorial_2
+L__icmp_fatorial_1:
+    li t3, 1
+L__icmp_fatorial_2:
+    st t3, 6(sp)
+    ld t1, 6(sp)
+    bnz t1, L_fatorial__9
+    j L_fatorial__15
+L_fatorial__9:
+    ld t1, 2(sp)
+    st t1, 7(sp)
+    ld t1, 3(sp)
+    st t1, 8(sp)
+    ld t1, 7(sp)
+    ld t2, 8(sp)
+    mul t3, t1, t2
+    st t3, 9(sp)
+    ld t1, 9(sp)
+    st t1, 2(sp)
+    ld t1, 3(sp)
+    st t1, 10(sp)
+    ld t1, 10(sp)
+    li t2, 1
+    add t3, t1, t2
+    st t3, 11(sp)
+    ld t1, 11(sp)
+    st t1, 3(sp)
+    j L_fatorial__5
+L_fatorial__15:
+    ld t1, 2(sp)
+    st t1, 12(sp)
+    ld a1, 12(sp)
+    ld lr, 13(sp)
+    addi sp, sp, 14
+    ret
+
+sinal:
+    addi sp, sp, -9
+    st lr, 8(sp)
+    st a1, 0(sp)
+    ld t1, 0(sp)
+    st t1, 2(sp)
+    ld t1, 2(sp)
+    st t1, 3(sp)
+    ld t1, 3(sp)
+    li t2, 0
+    cmp t3, t1, t2
+    bgt t3, zr, L__icmp_sinal_1
+    li t3, 0
+    j L__icmp_sinal_2
+L__icmp_sinal_1:
+    li t3, 1
+L__icmp_sinal_2:
+    st t3, 4(sp)
+    ld t1, 4(sp)
+    bnz t1, L_sinal__6
+    j L_sinal__7
+L_sinal__6:
+    li t1, 1
+    st t1, 1(sp)
+    j L_sinal__13
+L_sinal__7:
+    ld t1, 2(sp)
+    st t1, 5(sp)
+    ld t1, 5(sp)
+    li t2, 0
+    cmp t3, t1, t2
+    blt t3, zr, L__icmp_sinal_3
+    li t3, 0
+    j L__icmp_sinal_4
+L__icmp_sinal_3:
+    li t3, 1
+L__icmp_sinal_4:
+    st t3, 6(sp)
+    ld t1, 6(sp)
+    bnz t1, L_sinal__10
+    j L_sinal__11
+L_sinal__10:
+    li t1, -1
+    st t1, 1(sp)
+    j L_sinal__13
+L_sinal__11:
+    j L_sinal__12
+L_sinal__12:
+    li t1, 0
+    st t1, 1(sp)
+    j L_sinal__13
+L_sinal__13:
+    ld t1, 1(sp)
+    st t1, 7(sp)
+    ld a1, 7(sp)
+    ld lr, 8(sp)
+    addi sp, sp, 9
+    ret
+
+main:
+    addi sp, sp, -15
+    st lr, 14(sp)
+    li t1, 0
+    st t1, 0(sp)
+    li a1, 5
+    call fatorial
+    st a1, 4(sp)
+    ld t1, 4(sp)
+    st t1, 1(sp)
+    li a1, -9
+    call sinal
+    st a1, 5(sp)
+    ld t1, 5(sp)
+    st t1, 2(sp)
+    ld t1, 1(sp)
+    st t1, 6(sp)
+    ld t1, 6(sp)
+    li t2, 2
+    mul t3, t1, t2
+    st t3, 7(sp)
+    ld t1, 7(sp)
+    st t1, 3(sp)
+    ld t1, 1(sp)
+    st t1, 8(sp)
+    ld t1, 8(sp)
+    li t2, 120
+    cmp t3, t1, t2
+    beq t3, zr, L__icmp_main_1
+    li t3, 0
+    j L__icmp_main_2
+L__icmp_main_1:
+    li t3, 1
+L__icmp_main_2:
+    st t3, 9(sp)
+    ld t1, 9(sp)
+    bnz t1, L_main__11
+    j L_main__16
+L_main__11:
+    ld t1, 2(sp)
+    st t1, 10(sp)
+    ld t1, 10(sp)
+    li t2, -1
+    cmp t3, t1, t2
+    beq t3, zr, L__icmp_main_3
+    li t3, 0
+    j L__icmp_main_4
+L__icmp_main_3:
+    li t3, 1
+L__icmp_main_4:
+    st t3, 11(sp)
+    ld t1, 11(sp)
+    bnz t1, L_main__14
+    j L_main__16
+L_main__14:
+    ld t1, 3(sp)
+    st t1, 12(sp)
+    ld t1, 12(sp)
+    st t1, 0(sp)
+    j L_main__17
+L_main__16:
+    li t1, 0
+    st t1, 0(sp)
+    j L_main__17
+L_main__17:
+    ld t1, 0(sp)
+    st t1, 13(sp)
+    ld a1, 13(sp)
+    ld lr, 14(sp)
+    addi sp, sp, 15
+    ret
+

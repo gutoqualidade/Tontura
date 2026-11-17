@@ -1,0 +1,6 @@
+núcleo: 1073 palavras de texto, 1241 de dados; cobertura de instruções 99.81% (2 não executadas)
+  não executada   496: jal zr, 493                  | j 9b
+  não executada  1072: jal zr, 1072                 | 1:  j 1b
+IPC call/reply (ida e volta): 717.0 instruções de núcleo + 22.0 de usuário
+pilha do núcleo: profundidade máxima observada 24 palavras
+maior trecho não preemptível do núcleo (trap → retorno): 527 passos; com reinício de tarefa: 8621 passos

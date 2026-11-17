@@ -108,7 +108,7 @@ pub fn boot_k(k: &Program, tasks: Vec<TaskSpec>, quantum: i64, garbage: Option<u
     if let Some(seed) = garbage {
         m.randomize(seed);
     }
-    img.load(&mut m);
+    img.load(&mut m).unwrap();
     Ok(Sys { m, img })
 }
 

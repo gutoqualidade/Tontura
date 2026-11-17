@@ -1,0 +1,4 @@
+exploração exaustiva limitada: profundidade 5, cardápio de 14 ações, 3 tarefas
+sequências executadas (nós): 483468  terminais (sistema parou): 43381
+saídas do núcleo com invariantes conferidos: 493759  estados abstratos distintos do núcleo: 2975
+violações: 0

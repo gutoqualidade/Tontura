@@ -1,0 +1,2 @@
+kernel /home/guto/tenerura/src/os/kernel/kernel.tas
+task min ./boot_min.tas

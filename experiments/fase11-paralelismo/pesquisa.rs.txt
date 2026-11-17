@@ -1,0 +1,556 @@
+// TENERURA — harness da avaliação de paralelismo (docs/19), 2026-11-17.
+// NÃO é teste da suíte. Para reproduzir: copie src/t27 e src/os para um diretório
+// de rascunho, anexe este arquivo ao fim de tests/tir_system.rs da CÓPIA e rode
+//   cargo test --release --test tir_system -- --ignored pesquisa_ --nocapture
+// (pesquisa_paralelismo lê as sondas p1..p11 de ~/tenerura-sandbox/verification/tests/progs).
+
+// ═══════════ PESQUISA (cópia de rascunho, não é produção) ═══════════
+// ILP por bloco dinâmico, emissão W-larga, promoção de quadro (RA ideal),
+// peepholes e divisão núcleo/usuário, sobre traços reais do emulador.
+
+use std::collections::HashMap;
+use tenerura_t27::isa::{decode, Instr, Op};
+use tenerura_t27::machine::{Access, Step};
+
+const S11: i8 = -11;
+const SPR: i8 = -13;
+const WS: [usize; 7] = [1, 2, 3, 4, 9, 27, usize::MAX];
+
+#[derive(Clone, Copy)]
+struct Rec {
+    k: bool,
+    i: Instr,
+    ea: i64,
+}
+
+fn is_ctrl(op: Op) -> bool {
+    use Op::*;
+    matches!(op, Beq | Bne | Blt | Bge | Bgt | Ble | Jal | Jalr | Sys | Brk | Eret | Wfi)
+}
+fn is_br(op: Op) -> bool {
+    use Op::*;
+    matches!(op, Beq | Bne | Blt | Bge | Bgt | Ble)
+}
+
+fn rw(i: &Instr) -> (Vec<i8>, Option<i8>) {
+    use Op::*;
+    let (r, w): (Vec<i8>, Option<i8>) = match i.op {
+        Add | Sub | Addc | Mul | Mulh | Div | Rem | Cmp | Sh | Kmin | Kmax => (vec![i.b, i.c], Some(i.a)),
+        Addi | Shi | Ld | Jalr => (vec![i.b], Some(i.a)),
+        Lui | Jal | Csrr => (vec![], Some(i.a)),
+        St => (vec![i.a, i.b], None),
+        Beq | Bne | Blt | Bge | Bgt | Ble => (vec![i.a, i.b], None),
+        Csrw => (vec![i.b], None),
+        Csrx => (vec![i.b], Some(i.a)),
+        _ => (vec![], None),
+    };
+    (r.into_iter().filter(|&x| x != 0).collect(), w.filter(|&x| x != 0))
+}
+fn ri(r: i8) -> usize {
+    (r + 13) as usize
+}
+
+fn trace(s: &mut Sys, done: &dyn Fn(&Sys) -> bool, max: u64) -> Vec<Rec> {
+    let mut out = Vec::new();
+    for _ in 0..max {
+        if done(s) {
+            break;
+        }
+        let m = &s.m;
+        let pre = if m.ie && m.irqn() != 0 {
+            None
+        } else {
+            m.translate(m.pc.val(), Access::Fetch).ok().and_then(|pa| m.peek(pa)).and_then(|w| decode(w).ok()).map(|i| Rec {
+                k: m.kernel,
+                i,
+                ea: if matches!(i.op, Op::Ld | Op::St) { m.reg(i.b).val() + i.imm } else { 0 },
+            })
+        };
+        match s.m.step() {
+            Step::Exec | Step::Eret | Step::Trap(0) | Step::Trap(-6) => out.extend(pre),
+            Step::Halted(_) | Step::Idle | Step::DoubleFault => break,
+            _ => {}
+        }
+    }
+    out
+}
+
+fn blocks(t: &[Rec]) -> Vec<&[Rec]> {
+    let mut v = Vec::new();
+    let mut s = 0;
+    for j in 0..t.len() {
+        let end = is_ctrl(t[j].i.op) || j + 1 == t.len() || t[j + 1].k != t[j].k;
+        if end {
+            v.push(&t[s..=j]);
+            s = j + 1;
+        }
+    }
+    v
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Modo {
+    Real,
+    Renom,
+    Promo,
+}
+
+/// (nós mantidos, ciclos por largura WS)
+fn sched(b: &[Rec], modo: Modo) -> (u64, [u64; 7]) {
+    let mut nodes: Vec<Vec<(usize, u64)>> = Vec::new();
+    let mut src: [Option<usize>; 27] = [None; 27];
+    let mut readers: Vec<Vec<usize>> = vec![Vec::new(); 27];
+    let mut mem_w: HashMap<i64, usize> = HashMap::new();
+    let mut mem_r: HashMap<i64, Vec<usize>> = HashMap::new();
+    let mut slot: HashMap<i64, Option<usize>> = HashMap::new();
+    for r in b {
+        let i = r.i;
+        if modo == Modo::Promo && !r.k && matches!(i.op, Op::Ld | Op::St) && i.b == S11 {
+            if i.op == Op::St {
+                slot.insert(r.ea, if i.a == 0 { None } else { src[ri(i.a)] });
+            } else if i.a != 0 {
+                src[ri(i.a)] = slot.get(&r.ea).copied().flatten();
+                readers[ri(i.a)].clear();
+            }
+            continue;
+        }
+        let id = nodes.len();
+        let mut p: Vec<(usize, u64)> = Vec::new();
+        let (rd, wr) = rw(&i);
+        for &x in &rd {
+            if let Some(q) = src[ri(x)] {
+                p.push((q, 1));
+            }
+        }
+        match i.op {
+            Op::Ld => p.extend(mem_w.get(&r.ea).map(|&q| (q, 1))),
+            Op::St => {
+                p.extend(mem_w.get(&r.ea).map(|&q| (q, 1)));
+                p.extend(mem_r.get(&r.ea).into_iter().flatten().map(|&q| (q, 0)));
+            }
+            _ => {}
+        }
+        if modo == Modo::Real {
+            if let Some(w) = wr {
+                p.extend(src[ri(w)].map(|q| (q, 1)));
+                p.extend(readers[ri(w)].iter().map(|&q| (q, 0)));
+            }
+        }
+        if is_ctrl(i.op) {
+            p.extend((0..id).map(|q| (q, 0)));
+        }
+        for &x in &rd {
+            readers[ri(x)].push(id);
+        }
+        if let Some(w) = wr {
+            src[ri(w)] = Some(id);
+            readers[ri(w)].clear();
+        }
+        match i.op {
+            Op::Ld => mem_r.entry(r.ea).or_default().push(id),
+            Op::St => {
+                mem_w.insert(r.ea, id);
+                mem_r.remove(&r.ea);
+            }
+            _ => {}
+        }
+        nodes.push(p);
+    }
+    let n = nodes.len();
+    let mut h = vec![1u64; n];
+    for i in (0..n).rev() {
+        for &(q, l) in &nodes[i] {
+            h[q] = h[q].max(h[i] + l);
+        }
+    }
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by_key(|&i| (std::cmp::Reverse(h[i]), i));
+    let mut cyc = [0u64; 7];
+    for (k, &w) in WS.iter().enumerate() {
+        let mut at = vec![u64::MAX; n];
+        let (mut done, mut c) = (0, 0u64);
+        while done < n {
+            let mut used = 0;
+            loop {
+                let mut placed = false;
+                for &i in &order {
+                    if used == w {
+                        break;
+                    }
+                    if at[i] == u64::MAX && nodes[i].iter().all(|&(q, l)| at[q] != u64::MAX && at[q] + l <= c) {
+                        at[i] = c;
+                        used += 1;
+                        done += 1;
+                        placed = true;
+                    }
+                }
+                if !placed || used == w {
+                    break;
+                }
+            }
+            c += 1;
+        }
+        cyc[k] = c;
+    }
+    (n as u64, cyc)
+}
+
+#[derive(Default, Clone)]
+struct Acc {
+    instr: u64,
+    blocks: u64,
+    kept: [u64; 3],
+    cyc: [[u64; 7]; 3],
+    mix: HashMap<&'static str, u64>,
+    cmp_br: u64,
+    pow3: u64,
+    redund: u64,
+    slot_hist: [u64; 32],
+    calls: u64,
+    save_cost: [u64; 3], // Σ 2·min(quadro, k), k = 4, 10, 24
+}
+
+fn classe(r: &Rec) -> &'static str {
+    use Op::*;
+    let i = r.i;
+    match i.op {
+        Ld | St if i.b == S11 => "mem_quadro(s11)",
+        Ld | St if i.b == SPR => "mem_pilha(sp)",
+        Ld | St => "mem_outra",
+        Addi if i.b == 0 => "li",
+        Lui => "li",
+        Addi if i.imm == 0 => "mov",
+        Addi if i.a == SPR => "ajuste_sp",
+        Cmp => "cmp",
+        Beq | Bne | Blt | Bge | Bgt | Ble => "desvio",
+        Jal | Jalr => "salto/chamada",
+        Sys | Brk | Eret | Wfi => "trap/sys",
+        Csrr | Csrw | Csrx | Tlbi => "csr",
+        Mul | Mulh | Div | Rem => "mul/div",
+        _ => "alu",
+    }
+}
+
+fn is_pow3(v: i64) -> bool {
+    let mut v = v;
+    if v < 3 {
+        return false;
+    }
+    while v % 3 == 0 {
+        v /= 3;
+    }
+    v == 1
+}
+
+fn analisa(t: &[Rec], acc: &mut Acc) {
+    acc.instr += t.len() as u64;
+    for r in t {
+        *acc.mix.entry(classe(r)).or_default() += 1;
+    }
+    for j in 0..t.len().saturating_sub(1) {
+        let (a, b) = (t[j].i, t[j + 1].i);
+        if a.op == Op::Cmp && is_br(b.op) && ((b.a == a.a && b.b == 0) || (b.b == a.a && b.a == 0)) {
+            acc.cmp_br += 1;
+        }
+        if a.op == Op::Addi && a.b == 0 && is_pow3(a.imm) && ((b.op == Op::Mul && (b.b == a.a || b.c == a.a)) || (b.op == Op::Div && b.c == a.a)) {
+            acc.pow3 += 1;
+        }
+        // li c ; add/sub com c como operando → addi (imediato de 16 trits)
+        if a.op == Op::Addi && a.b == 0 && a.imm.abs() <= 21523360 && ((b.op == Op::Add && (b.b == a.a || b.c == a.a)) || (b.op == Op::Sub && b.c == a.a)) {
+            *acc.mix.entry("§li→addi").or_default() += 1;
+        }
+        if a.op == Op::Addi && a.b == 0 && a.imm == 0 {
+            *acc.mix.entry("§li 0").or_default() += 1;
+        }
+        // prólogo: mov s11, sp ; addi sp, sp, -N
+        if a.op == Op::Addi && a.a == S11 && a.b == SPR && a.imm == 0 && b.op == Op::Addi && b.a == SPR && b.b == SPR && b.imm < 0 {
+            acc.calls += 1;
+            for (k, lim) in [4u64, 10, 24].iter().enumerate() {
+                acc.save_cost[k] += 2 * (-b.imm as u64).min(*lim);
+            }
+        }
+    }
+    for b in blocks(t) {
+        acc.blocks += 1;
+        let mut in_reg: HashMap<i64, i8> = HashMap::new();
+        for r in b {
+            let i = r.i;
+            if !r.k && matches!(i.op, Op::Ld | Op::St) && i.b == S11 {
+                acc.slot_hist[((-i.imm).max(0) as usize).min(31)] += 1;
+                if i.op == Op::St {
+                    in_reg.insert(r.ea, i.a);
+                } else if in_reg.get(&r.ea) == Some(&i.a) {
+                    acc.redund += 1;
+                } else {
+                    in_reg.retain(|_, &mut x| x != i.a);
+                    in_reg.insert(r.ea, i.a);
+                }
+                continue;
+            }
+            if let (_, Some(w)) = rw(&i) {
+                in_reg.retain(|_, &mut x| x != w);
+            }
+        }
+        for (m, modo) in [Modo::Real, Modo::Renom, Modo::Promo].iter().enumerate() {
+            let (n, c) = sched(b, *modo);
+            acc.kept[m] += n;
+            for k in 0..7 {
+                acc.cyc[m][k] += c[k];
+            }
+        }
+    }
+}
+
+fn relata(nome: &str, a: &Acc) {
+    let f = |x: u64| x as f64 / a.instr.max(1) as f64;
+    eprintln!("── {nome}: {} instr, {} blocos (média {:.2} instr/bloco)", a.instr, a.blocks, f(a.instr) * a.instr as f64 / a.blocks.max(1) as f64);
+    let mut mix: Vec<_> = a.mix.iter().collect();
+    mix.sort_by_key(|(_, &v)| std::cmp::Reverse(v));
+    eprintln!("   mix: {}", mix.iter().map(|(k, &v)| format!("{k} {:.1}%", 100.0 * f(v))).collect::<Vec<_>>().join(" · "));
+    for (m, nm) in ["real(regs com WAR/WAW)", "renomeado", "promovido(RA ideal)"].iter().enumerate() {
+        let c = &a.cyc[m];
+        eprintln!(
+            "   {nm:24} nós {:>9} | ciclos W=1 {:>9} W=2 {:>9} W=3 {:>9} W=4 {:>9} W=9 {:>9} W=27 {:>9} ∞ {:>9} | ILP∞ {:.2}  ganho W=3 {:.2}x",
+            a.kept[m], c[0], c[1], c[2], c[3], c[4], c[5], c[6], a.kept[m] as f64 / c[6].max(1) as f64, a.instr as f64 / c[2].max(1) as f64
+        );
+    }
+    let quadro: u64 = a.slot_hist.iter().sum();
+    let cum = |k: usize| a.slot_hist[..=k.min(31)].iter().sum::<u64>() as f64 / quadro.max(1) as f64;
+    eprintln!(
+        "   quadro: {quadro} acessos ({:.1}%); slots ≤4 {:.1}% ≤10 {:.1}% ≤24 {:.1}% | cargas redundantes no bloco {} ({:.1}%) | cmp→desvio {} | li 3^k→mul/div {} | prólogos {} custo salvar s-regs k=4/10/24: {:?}",
+        100.0 * f(quadro), 100.0 * cum(4), 100.0 * cum(10), 100.0 * cum(24), a.redund, 100.0 * f(a.redund), a.cmp_br, a.pow3, a.calls, a.save_cost
+    );
+}
+
+const BENCH: &[(&str, &str)] = &[
+    ("fib_rec", "fn fib(n: word) -> word { if n < 2 { return n; } return fib(n - 1) + fib(n - 2); }
+      fn main() -> word { let mut i = 0; while i < 10 { putdec(fib(i)); putc(32); i = i + 1; } return fib(10); }"),
+    ("fib_iter", "fn main() -> word { let mut a = 0; let mut b = 1; let mut i = 0; let mut k = 0;
+      while k < 40 { a = 0; b = 1; i = 0; while i < 30 { let t = a + b; a = b; b = t; i = i + 1; } k = k + 1; } return a % 1000; }"),
+    ("gcd", "fn gcd(a: word, b: word) -> word { let mut x = a; let mut y = b; while y != 0 { let r = x % y; x = y; y = r; } return x; }
+      fn main() -> word { let mut s = 0; let mut i = 1; while i < 60 { let mut j = 1; while j < 30 { s = s + gcd(i * 7, j * 5); j = j + 1; } i = i + 1; } return s % 1000; }"),
+    ("collatz", "fn steps(n: word) -> word { let mut x = n; let mut c = 0; while x != 1 { if x % 2 == 0 { x = x / 2; } else { x = 3 * x + 1; } c = c + 1; } return c; }
+      fn main() -> word { let mut s = 0; let mut i = 1; while i < 200 { s = s + steps(i); i = i + 1; } return s % 1000; }"),
+    ("primos", "fn primo(n: word) -> bool { let mut d = 2; while d * d <= n { if n % d == 0 { return false; } d = d + 1; } return true; }
+      fn main() -> word { let mut c = 0; let mut n = 2; while n < 600 { if primo(n) { c = c + 1; } n = n + 1; } return c; }"),
+    ("trits", "fn soma_trits(n: word) -> word { let mut x = n; let mut s = 0; while x != 0 { let r = x % 3; s = s + r; x = (x - r) / 3; } return s; }
+      fn main() -> word { let mut s = 0; let mut i = -300; while i < 300 { s = s + soma_trits(i * 27 + 5); i = i + 1; } return s; }"),
+    ("horner", "fn p(x: word) -> word { return ((((3 * x + 9) * x - 27) * x + 10) * x - 81) * x + 7; }
+      fn main() -> word { let mut s = 0; let mut i = 0; while i < 500 { s = s + p(i % 50) % 1000; i = i + 1; } return s % 1000; }"),
+    ("aninhado", "fn main() -> word { let mut s = 0; let mut i = 0; while i < 30 { let mut j = 0; while j < 30 { match sign(i - j) { -1 => { s = s + i * j; } 0 => { s = s - 1; } _ => { s = s + (i - j) * 3; } } j = j + 1; } i = i + 1; } return s % 1000; }"),
+];
+
+fn roda_usuario(src: &str, c: fn(&str) -> Result<String, lang::Diag>) -> Vec<Rec> {
+    let tas = c(src).unwrap_or_else(|d| panic!("{d}\n{src}"));
+    let prog = assemble_str(&tas, "b", Some(&os_dir().join("user"))).unwrap_or_else(|e| panic!("{e}"));
+    let mut s = boot_k(&kernel(), vec![task("p", prog).con()], 0, None).unwrap();
+    let dead = s.k("ST_DEAD");
+    let t = trace(&mut s, &|s: &Sys| s.task("p").state == dead, 50_000_000);
+    assert_eq!(s.task("p").state, dead, "não terminou: {src}");
+    t
+}
+
+#[test]
+#[ignore]
+fn pesquisa_paralelismo() {
+    let gens: [(&str, fn(&str) -> Result<String, lang::Diag>); 2] = [("pilha", lang::compile_pilha), ("tir", lang::compile)];
+    let mut corpora: Vec<(String, Vec<String>)> = Vec::new();
+    for (nome, src) in BENCH {
+        corpora.push((format!("bench:{nome}"), vec![src.to_string()]));
+    }
+    let progs = std::path::Path::new("/home/guto/tenerura-sandbox/verification/tests/progs");
+    corpora.push(("sondas p1..p11".into(), (1..=11).map(|k| std::fs::read_to_string(progs.join(format!("p{k}.t27r"))).unwrap()).filter(|s| lang::compile(s).is_ok()).collect()));
+    corpora.push((
+        "fuzz 300".into(),
+        (1..=300u64).map(|seed| Fz { rng: XorShift(0x7151_0000 + seed), nv: 0, vars: vec![], fns: vec![] }.program()).collect(),
+    ));
+    let mut tot_u = [Acc::default(), Acc::default()];
+    let mut tot_k = [Acc::default(), Acc::default()];
+    for (nome, srcs) in &corpora {
+        for (g, (gn, c)) in gens.iter().enumerate() {
+            let (mut u, mut k) = (Acc::default(), Acc::default());
+            for src in srcs {
+                let t = roda_usuario(src, *c);
+                let (tu, tk): (Vec<Rec>, Vec<Rec>) = t.into_iter().partition(|r| !r.k);
+                analisa(&tu, &mut u);
+                analisa(&tk, &mut k);
+                analisa(&tu, &mut tot_u[g]);
+                analisa(&tk, &mut tot_k[g]);
+            }
+            eprintln!("\n### {nome} [{gn}]  usuário {} / núcleo {} instr ({:.1}% usuário)", u.instr, k.instr, 100.0 * u.instr as f64 / (u.instr + k.instr).max(1) as f64);
+            if nome.starts_with("bench") || nome.starts_with("fuzz") || nome.starts_with("sondas") {
+                relata("usuário", &u);
+            }
+        }
+    }
+    // sistema: pingr (T27R) × pong (assembly): regime limitado por IPC
+    let src = std::fs::read_to_string(os_dir().join("user/pingr.t27r")).unwrap();
+    for (g, (gn, c)) in gens.iter().enumerate() {
+        let tas = c(&src).unwrap();
+        let prog = assemble_str(&tas, "p", Some(&os_dir().join("user"))).unwrap();
+        let mut s = boot_k(&kernel(), vec![task("ping", prog).send(0, 1, 7).con(), task("pong", user("pong")).recv(0, 1)], 0, None).unwrap();
+        let dead = s.k("ST_DEAD");
+        let t = trace(&mut s, &|s: &Sys| s.task("ping").state == dead && s.task("pong").state == dead, 400_000);
+        let (tu, tk): (Vec<Rec>, Vec<Rec>) = t.into_iter().partition(|r| !r.k);
+        let (mut u, mut k) = (Acc::default(), Acc::default());
+        analisa(&tu, &mut u);
+        analisa(&tk, &mut k);
+        eprintln!("\n### sistema pingr+pong [{gn}] usuário {} / núcleo {} ({:.1}% usuário)", u.instr, k.instr, 100.0 * u.instr as f64 / (u.instr + k.instr) as f64);
+        relata("usuário", &u);
+        relata("núcleo", &k);
+        let _ = g;
+    }
+    for g in 0..2 {
+        eprintln!("\n######## TOTAL corpus de usuário [{}]", gens[g].0);
+        relata("usuário (todos)", &tot_u[g]);
+        relata("núcleo (todos)", &tot_k[g]);
+    }
+}
+
+/// Perfil do núcleo por rótulo de código (maior rótulo ≤ pc), traço com pc.
+#[test]
+#[ignore]
+fn pesquisa_perfil_nucleo() {
+    let src = std::fs::read_to_string(os_dir().join("user/pingr.t27r")).unwrap();
+    let tas = lang::compile(&src).unwrap();
+    let prog = assemble_str(&tas, "p", Some(&os_dir().join("user"))).unwrap();
+    let mut s = boot_k(&kernel(), vec![task("ping", prog).send(0, 1, 7).con(), task("pong", user("pong")).recv(0, 1)], 0, None).unwrap();
+    let dead = s.k("ST_DEAD");
+    // só rótulos de código do núcleo (minúsculos, sem '.'); dados ficam de fora por endereço
+    let text_end = s.k("sys_table");
+    let mut labs: Vec<(i64, String)> = s.img.kernel_symbols.iter().filter(|(n, &a)| a >= 0 && a < text_end && !n.contains('.') && n.chars().next().unwrap().is_ascii_lowercase()).map(|(n, &a)| (a, n.clone())).collect();
+    labs.sort();
+    let mut prof: HashMap<String, u64> = HashMap::new();
+    let (mut traps, mut k_after_first_user, mut seen_user) = (0u64, 0u64, false);
+    for _ in 0..400_000 {
+        if s.task("ping").state == dead && s.task("pong").state == dead {
+            break;
+        }
+        let (kern, pc) = (s.m.kernel, s.m.pc.val());
+        let before = s.m.stats.instr_kernel;
+        let st = s.m.step();
+        if matches!(st, Step::Trap(_)) {
+            traps += 1;
+        }
+        if !kern {
+            seen_user = true;
+        }
+        if kern && s.m.stats.instr_kernel > before {
+            let i = labs.partition_point(|(a, _)| *a <= pc);
+            let name = if i == 0 { "?".to_string() } else { labs[i - 1].1.clone() };
+            *prof.entry(name).or_default() += 1;
+            if seen_user {
+                k_after_first_user += 1;
+            }
+        }
+    }
+    let tot: u64 = prof.values().sum();
+    let mut v: Vec<_> = prof.into_iter().collect();
+    v.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    eprintln!("núcleo pingr: {tot} instr; antes da 1ª instrução de usuário {}; traps {traps}", tot - k_after_first_user);
+    for (n, c) in v.iter().take(25) {
+        eprintln!("  {n:24} {c:>7} ({:.1}%)", 100.0 * *c as f64 / tot as f64);
+    }
+}
+
+/// DLP: 3 lanes de 9 trits numa palavra. Soma/negação/escala por constante
+/// lane a lane com `add`/`sub`/`mul` comuns, sem máscara nem trit de guarda,
+/// enquanto cada resultado de lane couber em ±(3⁹−1)/2. Extração com `shi`.
+#[test]
+#[ignore]
+fn pesquisa_swar() {
+    const P9: i64 = 19683;
+    let h = (P9 - 1) / 2; // 9841
+    let pack = |v: [i64; 3]| v[0] + v[1] * P9 + v[2] * P9 * P9;
+    let n = 729usize; // elementos escalares; 243 palavras empacotadas
+    let mut rng = XorShift(0xD1F);
+    let a: Vec<i64> = (0..n).map(|_| rng.range(-h / 2, h / 2)).collect();
+    let b: Vec<i64> = (0..n).map(|_| rng.range(-h / 2, h / 2)).collect();
+    let words = |xs: &[i64]| xs.iter().map(|x| format!("    .word {x}")).collect::<Vec<_>>().join("\n");
+    let packed = |xs: &[i64]| xs.chunks(3).map(|c| pack([c[0], c[1], c[2]])).collect::<Vec<_>>();
+    // C[i] = A[i] + B[i]; mesmo laço, só muda o número de palavras
+    let laco = |len: usize| {
+        format!(
+            "_start:
+    la t1, A
+    la t2, B
+    la t3, C
+    li t4, {len}
+1:  ld a1, 0(t1)
+    ld a2, 0(t2)
+    add a1, a1, a2
+    st a1, 0(t3)
+    addi t1, t1, 1
+    addi t2, t2, 1
+    addi t3, t3, 1
+    addi t4, t4, -1
+    bne t4, zr, 1b
+    la t1, DEV_POWER
+    st zr, 0(t1)
+2:  j 2b"
+        )
+    };
+    let roda = |prog: String, av: &[i64], bv: &[i64]| -> (u64, Vec<i64>) {
+        let full = format!("{PRELUDE}\n{prog}\n    .data\nA:\n{}\nB:\n{}\nC:\n    .zero {}\n", words(av), words(bv), av.len());
+        let p = assemble_str(&full, "swar", None).unwrap_or_else(|e| panic!("{e}"));
+        let mut m = Machine::new(DEFAULT_RAM_HALF);
+        for s in &p.segments {
+            m.load(s.base, &s.words).unwrap();
+        }
+        m.pc = Word::lit(p.entry);
+        assert_eq!(m.run(1_000_000), Stop::Halted(0));
+        let c0 = p.symbols["C"];
+        (m.stats.instr_kernel + m.stats.instr_user, (0..av.len() as i64).map(|k| m.peek(c0 + k).unwrap().val()).collect())
+    };
+    let (pa, pb) = (packed(&a), packed(&b));
+    let (s_esc, c_esc) = roda(laco(n), &a, &b);
+    let (s_emp, c_emp) = roda(laco(n / 3), &pa, &pb);
+    // desempacota no hospedeiro com a mesma regra do shi (arredonda ao mais próximo)
+    let shi_down = |w: i64, k: u32| {
+        let d = 3i64.pow(k);
+        let q = w.div_euclid(d);
+        let r = w.rem_euclid(d);
+        if 2 * r > d { q + 1 } else { q }
+    };
+    let mut got = Vec::new();
+    for &w in &c_emp {
+        let hi = shi_down(w, 9);
+        got.push(w - hi * P9);
+        let top = shi_down(hi, 9);
+        got.push(hi - top * P9);
+        got.push(top);
+    }
+    let want: Vec<i64> = a.iter().zip(&b).map(|(x, y)| x + y).collect();
+    assert_eq!(c_esc, want);
+    assert_eq!(got, want, "lanes empacotadas divergem");
+    eprintln!("soma de {n} elementos: escalar {s_esc} passos, empacotado (3×9 trits) {s_emp} passos ({:.2}×)", s_esc as f64 / s_emp as f64);
+    // extração na própria máquina: shi/shi/sub por lane — custo por palavra
+    let ext = "_start:
+    la t1, C
+    ld a1, 0(t1)
+    shi a2, a1, -9
+    shi a3, a2, 9
+    sub a4, a1, a3
+    shi a5, a2, -9
+    shi a6, a5, 9
+    sub a7, a2, a6
+    st a4, 1(t1)
+    st a7, 2(t1)
+    st a5, 3(t1)
+    la t1, DEV_POWER
+    st zr, 0(t1)
+2:  j 2b";
+    let w = pack([-4321, 9840, -9841]);
+    let full = format!("{PRELUDE}\n{ext}\n    .data\nC:\n    .word {w}\n    .zero 3\n");
+    let p = assemble_str(&full, "ext", None).unwrap();
+    let mut m = Machine::new(DEFAULT_RAM_HALF);
+    for s in &p.segments {
+        m.load(s.base, &s.words).unwrap();
+    }
+    m.pc = Word::lit(p.entry);
+    assert_eq!(m.run(1000), Stop::Halted(0));
+    let c0 = p.symbols["C"];
+    let lanes: Vec<i64> = (1..=3).map(|k| m.peek(c0 + k).unwrap().val()).collect();
+    assert_eq!(lanes, vec![-4321, 9840, -9841], "extração na máquina");
+    eprintln!("extração na máquina ok: 3 lanes com extremos ±9841 = 6 instruções (2 por lane)");
+}

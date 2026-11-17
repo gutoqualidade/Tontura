@@ -54,8 +54,9 @@ fn main() -> ExitCode {
         "run" => match assemble_file(Path::new(&args[2])) {
             Ok(p) => {
                 let mut m = Machine::new(DEFAULT_RAM_HALF);
-                for s in &p.segments {
-                    m.load(s.base, &s.words);
+                if let Err(e) = p.segments.iter().try_for_each(|s| m.load(s.base, &s.words)) {
+                    eprintln!("erro: {e}");
+                    return ExitCode::FAILURE;
                 }
                 m.pc = Word::lit(p.entry);
                 let stop = m.run(steps);
@@ -70,7 +71,10 @@ fn main() -> ExitCode {
         "sys" => match load_manifest(Path::new(&args[2])) {
             Ok(img) => {
                 let mut m = Machine::new(DEFAULT_RAM_HALF);
-                img.load(&mut m);
+                if let Err(e) = img.load(&mut m) {
+                    eprintln!("erro: {e}");
+                    return ExitCode::FAILURE;
+                }
                 let input = args.iter().position(|a| a == "--input").and_then(|i| args.get(i + 1)).cloned();
                 let mut chunks: Vec<&str> = input.as_deref().map(|s| s.split('|').collect()).unwrap_or_default();
                 chunks.reverse();

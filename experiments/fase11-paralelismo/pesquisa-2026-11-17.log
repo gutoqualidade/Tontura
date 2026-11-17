@@ -1,0 +1,227 @@
+warning: Nix search path entry '/nix/var/nix/profiles/per-user/root/channels' does not exist, ignoring
+   Compiling tenerura-t27 v0.1.0 (/tmp/claude-1000/-home-guto/12485025-9efe-4ba3-ad5b-6796aad3d859/scratchpad/post/t27)
+    Finished `release` profile [optimized] target(s) in 14.78s
+     Running tests/tir_system.rs (target/release/deps/tir_system-774053356be04a70)
+
+running 1 test
+
+### bench:fib_rec [pilha]  usuário 18623 / núcleo 15171 instr (55.1% usuário)
+── usuário: 18623 instr, 2440 blocos (média 7.63 instr/bloco)
+   mix: ajuste_sp 29.8% · mem_pilha(sp) 27.4% · li 9.2% · mem_quadro(s11) 8.7% · salto/chamada 7.7% · desvio 5.2% · mov 5.2% · alu 3.9% · §li 0 2.6% · cmp 2.5% · mul/div 0.1% · trap/sys 0.1%
+   real(regs com WAR/WAW)   nós     18623 | ciclos W=1     18623 W=2     11339 W=3     10629 W=4     10606 W=9     10606 W=27     10606 ∞     10606 | ILP∞ 1.76  ganho W=3 1.75x
+   renomeado                nós     18623 | ciclos W=1     18623 W=2     10645 W=3     10619 W=4     10596 W=9     10596 W=27     10596 ∞     10596 | ILP∞ 1.76  ganho W=3 1.75x
+   promovido(RA ideal)      nós     17001 | ciclos W=1     17001 W=2     10181 W=3     10155 W=4     10132 W=9     10132 W=27     10132 ∞     10132 | ILP∞ 1.68  ganho W=3 1.83x
+   quadro: 1622 acessos (8.7%); slots ≤4 100.0% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 454 (2.4%) | cmp→desvio 0 | li 3^k→mul/div 0 | prólogos 454 custo salvar s-regs k=4/10/24: [908, 908, 908]
+
+### bench:fib_rec [tir]  usuário 13315 / núcleo 14528 instr (47.8% usuário)
+── usuário: 13315 instr, 1976 blocos (média 6.74 instr/bloco)
+   mix: mem_quadro(s11) 29.1% · ajuste_sp 17.8% · mem_pilha(sp) 14.4% · salto/chamada 10.8% · li 7.5% · mov 7.2% · alu 5.5% · desvio 3.9% · cmp 3.5% · §li→addi 3.4% · mul/div 0.2% · trap/sys 0.2% · §li 0 0.1%
+   real(regs com WAR/WAW)   nós     13315 | ciclos W=1     13315 W=2      8558 W=3      8522 W=4      8499 W=9      8499 W=27      8499 ∞      8499 | ILP∞ 1.57  ganho W=3 1.56x
+   renomeado                nós     13315 | ciclos W=1     13315 W=2      8548 W=3      8522 W=4      8499 W=9      8499 W=27      8499 ∞      8499 | ILP∞ 1.57  ganho W=3 1.56x
+   promovido(RA ideal)      nós      9441 | ciclos W=1      9441 W=2      5831 W=3      5351 W=4      4874 W=9      4874 W=27      4874 ∞      4874 | ILP∞ 1.94  ganho W=3 2.49x
+   quadro: 3874 acessos (29.1%); slots ≤4 77.2% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 665 (5.0%) | cmp→desvio 464 | li 3^k→mul/div 0 | prólogos 454 custo salvar s-regs k=4/10/24: [3630, 5442, 5442]
+
+### bench:fib_iter [pilha]  usuário 39883 / núcleo 13081 instr (75.3% usuário)
+── usuário: 39883 instr, 3807 blocos (média 10.48 instr/bloco)
+   mix: mem_quadro(s11) 30.8% · ajuste_sp 18.7% · mem_pilha(sp) 18.7% · li 13.0% · desvio 6.4% · alu 6.1% · §li 0 3.4% · cmp 3.2% · salto/chamada 3.1% · mov 0.0% · mul/div 0.0% · trap/sys 0.0%
+   real(regs com WAR/WAW)   nós     39883 | ciclos W=1     39883 W=2     22504 W=3     22504 W=4     22504 W=9     22504 W=27     22504 ∞     22504 | ILP∞ 1.77  ganho W=3 1.77x
+   renomeado                nós     39883 | ciclos W=1     39883 W=2     22464 W=3     17621 W=4     17621 W=9     17621 W=27     17621 ∞     17621 | ILP∞ 2.26  ganho W=3 2.26x
+   promovido(RA ideal)      nós     27597 | ciclos W=1     27597 W=2     16341 W=3     16300 W=4     16300 W=9     16300 W=27     16300 ∞     16300 | ILP∞ 1.69  ganho W=3 2.45x
+   quadro: 12286 acessos (30.8%); slots ≤4 80.5% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 41 (0.1%) | cmp→desvio 0 | li 3^k→mul/div 0 | prólogos 1 custo salvar s-regs k=4/10/24: [8, 10, 10]
+
+### bench:fib_iter [tir]  usuário 38315 / núcleo 12802 instr (75.0% usuário)
+── usuário: 38315 instr, 2526 blocos (média 15.17 instr/bloco)
+   mix: mem_quadro(s11) 39.2% · ajuste_sp 18.8% · mem_pilha(sp) 18.8% · li 6.9% · alu 6.4% · cmp 3.3% · desvio 3.3% · salto/chamada 3.2% · §li→addi 3.2% · §li 0 0.2% · mov 0.0% · mul/div 0.0% · trap/sys 0.0%
+   real(regs com WAR/WAW)   nós     38315 | ciclos W=1     38315 W=2     22301 W=3     17461 W=4     16261 W=9     16261 W=27     16261 ∞     16261 | ILP∞ 2.36  ganho W=3 2.19x
+   renomeado                nós     38315 | ciclos W=1     38315 W=2     21020 W=3     14938 W=4     13738 W=9     12538 W=27     12538 ∞     12538 | ILP∞ 3.06  ganho W=3 2.56x
+   promovido(RA ideal)      nós     23307 | ciclos W=1     23307 W=2     13536 W=3     11134 W=4     11133 W=9     11132 W=27     11132 ∞     11132 | ILP∞ 2.09  ganho W=3 3.44x
+   quadro: 15008 acessos (39.2%); slots ≤4 1.6% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 42 (0.1%) | cmp→desvio 1281 | li 3^k→mul/div 0 | prólogos 1 custo salvar s-regs k=4/10/24: [8, 18, 18]
+
+### bench:gcd [pilha]  usuário 269127 / núcleo 22444 instr (92.3% usuário)
+── usuário: 269127 instr, 30280 blocos (média 8.89 instr/bloco)
+   mix: mem_quadro(s11) 25.8% · ajuste_sp 21.6% · mem_pilha(sp) 20.9% · li 11.3% · desvio 6.7% · §li 0 6.0% · salto/chamada 4.6% · cmp 3.3% · mul/div 3.3% · alu 1.3% · mov 1.3% · trap/sys 0.0%
+   real(regs com WAR/WAW)   nós    269127 | ciclos W=1    269127 W=2    157639 W=3    152506 W=4    152506 W=9    152506 W=27    152506 ∞    152506 | ILP∞ 1.76  ganho W=3 1.76x
+   renomeado                nós    269127 | ciclos W=1    269127 W=2    152506 W=3    145661 W=4    145661 W=9    145661 W=27    145661 ∞    145661 | ILP∞ 1.85  ganho W=3 1.85x
+   promovido(RA ideal)      nós    199723 | ciclos W=1    199723 W=2    125771 W=3    122349 W=4    122349 W=9    122349 W=27    122349 ∞    122349 | ILP∞ 1.63  ganho W=3 2.20x
+   quadro: 69404 acessos (25.8%); slots ≤4 84.4% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 3482 (1.3%) | cmp→desvio 0 | li 3^k→mul/div 0 | prólogos 1712 custo salvar s-regs k=4/10/24: [13694, 17116, 17116]
+
+### bench:gcd [tir]  usuário 205983 / núcleo 19571 instr (91.3% usuário)
+── usuário: 205983 instr, 21309 blocos (média 9.67 instr/bloco)
+   mix: mem_quadro(s11) 42.2% · ajuste_sp 14.7% · mem_pilha(sp) 13.9% · li 6.9% · salto/chamada 6.0% · cmp 4.4% · desvio 4.4% · mul/div 4.3% · §li 0 3.5% · alu 1.7% · mov 1.7% · §li→addi 0.9% · trap/sys 0.0%
+   real(regs com WAR/WAW)   nós    205983 | ciclos W=1    205983 W=2    126187 W=3    111905 W=4    111905 W=9    111905 W=27    111905 ∞    111905 | ILP∞ 1.84  ganho W=3 1.84x
+   renomeado                nós    205983 | ciclos W=1    205983 W=2    117275 W=3    102993 W=4    101282 W=9    101282 W=27    101282 ∞    101282 | ILP∞ 2.03  ganho W=3 2.00x
+   promovido(RA ideal)      nós    119113 | ciclos W=1    119113 W=2     74725 W=3     71301 W=4     64159 W=9     64159 W=27     64159 ∞     64159 | ILP∞ 1.86  ganho W=3 2.89x
+   quadro: 86870 acessos (42.2%); slots ≤4 67.7% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 1772 (0.9%) | cmp→desvio 8971 | li 3^k→mul/div 0 | prólogos 1712 custo salvar s-regs k=4/10/24: [13696, 17128, 17128]
+
+### bench:collatz [pilha]  usuário 409417 / núcleo 27656 instr (93.7% usuário)
+── usuário: 409417 instr, 49199 blocos (média 8.32 instr/bloco)
+   mix: ajuste_sp 22.6% · mem_pilha(sp) 22.5% · li 18.8% · mem_quadro(s11) 12.9% · desvio 8.4% · §li 0 6.3% · cmp 4.2% · mul/div 4.1% · salto/chamada 3.6% · alu 2.8% · mov 0.1% · trap/sys 0.0%
+   real(regs com WAR/WAW)   nós    409417 | ciclos W=1    409417 W=2    236721 W=3    236323 W=4    236323 W=9    236323 W=27    236323 ∞    236323 | ILP∞ 1.73  ganho W=3 1.73x
+   renomeado                nós    409417 | ciclos W=1    409417 W=2    236522 W=3    227867 W=4    227867 W=9    227867 W=27    227867 ∞    227867 | ILP∞ 1.80  ganho W=3 1.80x
+   promovido(RA ideal)      nós    356673 | ciclos W=1    356673 W=2    218542 W=3    213038 W=4    213038 W=9    213038 W=27    213038 ∞    213038 | ILP∞ 1.67  ganho W=3 1.92x
+   quadro: 52744 acessos (12.9%); slots ≤4 100.0% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 200 (0.0%) | cmp→desvio 0 | li 3^k→mul/div 0 | prólogos 200 custo salvar s-regs k=4/10/24: [1198, 1198, 1198]
+
+### bench:collatz [tir]  usuário 251820 / núcleo 21133 instr (92.3% usuário)
+── usuário: 251820 instr, 32016 blocos (média 7.87 instr/bloco)
+   mix: mem_quadro(s11) 50.3% · li 18.1% · desvio 6.8% · cmp 6.8% · mul/div 6.7% · salto/chamada 5.9% · alu 4.6% · §li→addi 4.5% · §li 0 3.4% · ajuste_sp 0.4% · mem_pilha(sp) 0.3% · mov 0.2% · trap/sys 0.0%
+   real(regs com WAR/WAW)   nós    251820 | ciclos W=1    251820 W=2    170145 W=3    169946 W=4    169946 W=9    169946 W=27    169946 ∞    169946 | ILP∞ 1.48  ganho W=3 1.48x
+   renomeado                nós    251820 | ciclos W=1    251820 W=2    164441 W=3    164242 W=4    164242 W=9    164242 W=27    164242 ∞    164242 | ILP∞ 1.53  ganho W=3 1.53x
+   promovido(RA ideal)      nós    125240 | ciclos W=1    125240 W=2     95511 W=3     92558 W=4     92358 W=9     92358 W=27     92358 ∞     92358 | ILP∞ 1.36  ganho W=3 2.72x
+   quadro: 126580 acessos (50.3%); slots ≤4 55.6% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 2 (0.0%) | cmp→desvio 17183 | li 3^k→mul/div 0 | prólogos 200 custo salvar s-regs k=4/10/24: [1600, 2796, 2796]
+
+### bench:primos [pilha]  usuário 137357 / núcleo 17043 instr (89.0% usuário)
+── usuário: 137357 instr, 17292 blocos (média 7.94 instr/bloco)
+   mix: ajuste_sp 24.0% · mem_pilha(sp) 23.6% · mem_quadro(s11) 15.9% · li 12.5% · desvio 9.3% · §li 0 6.7% · cmp 4.4% · mul/div 4.0% · salto/chamada 3.3% · alu 2.1% · mov 0.9% · trap/sys 0.0%
+   real(regs com WAR/WAW)   nós    137357 | ciclos W=1    137357 W=2     79802 W=3     79204 W=4     79204 W=9     79204 W=27     79204 ∞     79204 | ILP∞ 1.73  ganho W=3 1.73x
+   renomeado                nós    137357 | ciclos W=1    137357 W=2     78606 W=3     78387 W=4     78387 W=9     78387 W=27     78387 ∞     78387 | ILP∞ 1.75  ganho W=3 1.75x
+   promovido(RA ideal)      nós    115480 | ciclos W=1    115480 W=2     75114 W=3     75005 W=4     75005 W=9     75005 W=27     75005 ∞     75005 | ILP∞ 1.54  ganho W=3 1.83x
+   quadro: 21877 acessos (15.9%); slots ≤4 100.0% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 3382 (2.5%) | cmp→desvio 0 | li 3^k→mul/div 0 | prólogos 599 custo salvar s-regs k=4/10/24: [2396, 2396, 2396]
+
+### bench:primos [tir]  usuário 81649 / núcleo 14585 instr (84.8% usuário)
+── usuário: 81649 instr, 11345 blocos (média 7.20 instr/bloco)
+   mix: mem_quadro(s11) 51.4% · li 9.0% · desvio 8.1% · cmp 7.4% · mul/div 6.7% · salto/chamada 5.7% · §li 0 3.9% · ajuste_sp 3.7% · alu 3.5% · §li→addi 3.5% · mem_pilha(sp) 2.9% · mov 1.5% · trap/sys 0.0%
+   real(regs com WAR/WAW)   nós     81649 | ciclos W=1     81649 W=2     57275 W=3     57275 W=4     57275 W=9     57275 W=27     57275 ∞     57275 | ILP∞ 1.43  ganho W=3 1.43x
+   renomeado                nós     81649 | ciclos W=1     81649 W=2     57274 W=3     56785 W=4     56785 W=9     56785 W=27     56785 ∞     56785 | ILP∞ 1.44  ganho W=3 1.44x
+   promovido(RA ideal)      nós     39704 | ciclos W=1     39704 W=2     29345 W=3     28745 W=4     28744 W=9     28744 W=27     28744 ∞     28744 | ILP∞ 1.38  ganho W=3 2.84x
+   quadro: 41945 acessos (51.4%); slots ≤4 96.6% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 599 (0.7%) | cmp→desvio 6056 | li 3^k→mul/div 0 | prólogos 599 custo salvar s-regs k=4/10/24: [4792, 4794, 4794]
+
+### bench:trits [pilha]  usuário 255946 / núcleo 21685 instr (92.2% usuário)
+── usuário: 255946 instr, 19915 blocos (média 12.85 instr/bloco)
+   mix: ajuste_sp 24.1% · mem_pilha(sp) 23.9% · mem_quadro(s11) 20.5% · li 11.9% · §li 0 4.9% · desvio 4.9% · alu 4.6% · mul/div 4.2% · salto/chamada 2.9% · cmp 2.4% · mov 0.5% · §li→addi 0.0% · trap/sys 0.0%
+   real(regs com WAR/WAW)   nós    255946 | ciclos W=1    255946 W=2    141648 W=3    140448 W=4    140448 W=9    140448 W=27    140448 ∞    140448 | ILP∞ 1.82  ganho W=3 1.82x
+   renomeado                nós    255946 | ciclos W=1    255946 W=2    141047 W=3    119702 W=4    119702 W=9    119702 W=27    119702 ∞    119702 | ILP∞ 2.14  ganho W=3 2.14x
+   promovido(RA ideal)      nós    203418 | ciclos W=1    203418 W=2    117302 W=3    112265 W=4    112265 W=9    112265 W=27    112265 ∞    112265 | ILP∞ 1.81  ganho W=3 2.28x
+   quadro: 52528 acessos (20.5%); slots ≤4 100.0% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 601 (0.2%) | cmp→desvio 0 | li 3^k→mul/div 0 | prólogos 601 custo salvar s-regs k=4/10/24: [4804, 4804, 4804]
+
+### bench:trits [tir]  usuário 156530 / núcleo 17483 instr (90.0% usuário)
+── usuário: 156530 instr, 13678 blocos (média 11.44 instr/bloco)
+   mix: mem_quadro(s11) 56.7% · li 12.0% · alu 7.6% · mul/div 6.8% · salto/chamada 4.8% · §li 0 4.0% · cmp 4.0% · desvio 4.0% · ajuste_sp 1.9% · mem_pilha(sp) 1.5% · mov 0.8% · §li→addi 0.8% · trap/sys 0.0%
+   real(regs com WAR/WAW)   nós    156530 | ciclos W=1    156530 W=2    104830 W=3     99193 W=4     99193 W=9     99193 W=27     99193 ∞     99193 | ILP∞ 1.58  ganho W=3 1.58x
+   renomeado                nós    156530 | ciclos W=1    156530 W=2     89121 W=3     88521 W=4     88521 W=9     88521 W=27     88521 ∞     88521 | ILP∞ 1.77  ganho W=3 1.77x
+   promovido(RA ideal)      nós     67784 | ciclos W=1     67784 W=2     46066 W=3     45464 W=4     44864 W=9     44864 W=27     44864 ∞     44864 | ILP∞ 1.51  ganho W=3 3.44x
+   quadro: 88746 acessos (56.7%); slots ≤4 60.5% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 5637 (3.6%) | cmp→desvio 6237 | li 3^k→mul/div 5636 | prólogos 601 custo salvar s-regs k=4/10/24: [4808, 8416, 8416]
+
+### bench:horner [pilha]  usuário 60039 / núcleo 14600 instr (80.4% usuário)
+── usuário: 60039 instr, 3007 blocos (média 19.97 instr/bloco)
+   mix: ajuste_sp 30.8% · mem_pilha(sp) 30.0% · li 10.0% · mem_quadro(s11) 10.0% · mul/div 5.8% · alu 5.8% · salto/chamada 3.3% · mov 1.7% · desvio 1.7% · §li 0 0.8% · cmp 0.8% · trap/sys 0.0%
+   real(regs com WAR/WAW)   nós     60039 | ciclos W=1     60039 W=2     33022 W=3     31022 W=4     31022 W=9     31022 W=27     31022 ∞     31022 | ILP∞ 1.94  ganho W=3 1.94x
+   renomeado                nós     60039 | ciclos W=1     60039 W=2     32022 W=3     30021 W=4     30021 W=9     30021 W=27     30021 ∞     30021 | ILP∞ 2.00  ganho W=3 2.00x
+   promovido(RA ideal)      nós     54035 | ciclos W=1     54035 W=2     30020 W=3     29520 W=4     29520 W=9     29520 W=27     29520 ∞     29520 | ILP∞ 1.83  ganho W=3 2.03x
+   quadro: 6004 acessos (10.0%); slots ≤4 100.0% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 1 (0.0%) | cmp→desvio 0 | li 3^k→mul/div 0 | prólogos 501 custo salvar s-regs k=4/10/24: [1004, 1004, 1004]
+
+### bench:horner [tir]  usuário 41531 / núcleo 13315 instr (75.7% usuário)
+── usuário: 41531 instr, 2506 blocos (média 16.57 instr/bloco)
+   mix: mem_quadro(s11) 50.6% · li 12.1% · mul/div 8.4% · alu 8.4% · §li→addi 7.2% · ajuste_sp 6.0% · salto/chamada 4.8% · mem_pilha(sp) 4.8% · mov 2.4% · desvio 1.2% · cmp 1.2% · §li 0 0.0% · trap/sys 0.0%
+   real(regs com WAR/WAW)   nós     41531 | ciclos W=1     41531 W=2     28519 W=3     28019 W=4     28019 W=9     28019 W=27     28019 ∞     28019 | ILP∞ 1.48  ganho W=3 1.48x
+   renomeado                nós     41531 | ciclos W=1     41531 W=2     27518 W=3     27518 W=4     27518 W=9     27518 W=27     27518 ∞     27518 | ILP∞ 1.51  ganho W=3 1.51x
+   promovido(RA ideal)      nós     20525 | ciclos W=1     20525 W=2     12015 W=3     11513 W=4     11512 W=9     11512 W=27     11512 ∞     11512 | ILP∞ 1.78  ganho W=3 3.61x
+   quadro: 21006 acessos (50.6%); slots ≤4 52.4% ≤10 95.2% ≤24 100.0% | cargas redundantes no bloco 1002 (2.4%) | cmp→desvio 501 | li 3^k→mul/div 0 | prólogos 501 custo salvar s-regs k=4/10/24: [4008, 10014, 11014]
+
+### bench:aninhado [pilha]  usuário 45294 / núcleo 13763 instr (76.7% usuário)
+── usuário: 45294 instr, 5557 blocos (média 8.15 instr/bloco)
+   mix: ajuste_sp 22.1% · mem_pilha(sp) 22.1% · mem_quadro(s11) 18.1% · li 12.5% · desvio 7.3% · alu 7.0% · salto/chamada 5.0% · cmp 4.1% · §li 0 3.2% · mul/div 1.9% · mov 0.0% · trap/sys 0.0%
+   real(regs com WAR/WAW)   nós     45294 | ciclos W=1     45294 W=2     26602 W=3     25732 W=4     25732 W=9     25732 W=27     25732 ∞     25732 | ILP∞ 1.76  ganho W=3 1.76x
+   renomeado                nós     45294 | ciclos W=1     45294 W=2     26602 W=3     25731 W=4     25731 W=9     25731 W=27     25731 ∞     25731 | ILP∞ 1.76  ganho W=3 1.76x
+   promovido(RA ideal)      nós     37100 | ciclos W=1     37100 W=2     23840 W=3     23840 W=4     23840 W=9     23840 W=27     23840 ∞     23840 | ILP∞ 1.56  ganho W=3 1.90x
+   quadro: 8194 acessos (18.1%); slots ≤4 100.0% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 31 (0.1%) | cmp→desvio 0 | li 3^k→mul/div 0 | prólogos 1 custo salvar s-regs k=4/10/24: [6, 6, 6]
+
+### bench:aninhado [tir]  usuário 33811 / núcleo 12835 instr (72.5% usuário)
+── usuário: 33811 instr, 4161 blocos (média 8.13 instr/bloco)
+   mix: mem_quadro(s11) 59.1% · li 11.1% · alu 9.4% · desvio 6.9% · cmp 5.5% · salto/chamada 5.4% · §li→addi 2.8% · mul/div 2.6% · §li 0 1.5% · ajuste_sp 0.0% · mem_pilha(sp) 0.0% · mov 0.0% · trap/sys 0.0%
+   real(regs com WAR/WAW)   nós     33811 | ciclos W=1     33811 W=2     24184 W=3     24184 W=4     24184 W=9     24184 W=27     24184 ∞     24184 | ILP∞ 1.40  ganho W=3 1.40x
+   renomeado                nós     33811 | ciclos W=1     33811 W=2     23283 W=3     23283 W=4     23283 W=9     23283 W=27     23283 ∞     23283 | ILP∞ 1.45  ganho W=3 1.45x
+   promovido(RA ideal)      nós     13825 | ciclos W=1     13825 W=2     10620 W=3     10183 W=4     10182 W=9     10182 W=27     10182 ∞     10182 | ILP∞ 1.36  ganho W=3 3.32x
+   quadro: 19986 acessos (59.1%); slots ≤4 41.6% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 1832 (5.4%) | cmp→desvio 961 | li 3^k→mul/div 435 | prólogos 1 custo salvar s-regs k=4/10/24: [8, 20, 20]
+
+### sondas p1..p11 [pilha]  usuário 1699 / núcleo 86087 instr (1.9% usuário)
+── usuário: 1699 instr, 325 blocos (média 5.23 instr/bloco)
+   mix: ajuste_sp 20.5% · mem_pilha(sp) 19.5% · li 15.1% · salto/chamada 10.4% · mem_quadro(s11) 8.9% · mov 7.4% · desvio 6.5% · alu 5.6% · §li 0 4.2% · trap/sys 2.2% · cmp 2.1% · mul/div 1.7% · §li→addi 0.2%
+   real(regs com WAR/WAW)   nós      1699 | ciclos W=1      1699 W=2      1064 W=3      1003 W=4       971 W=9       971 W=27       971 ∞       971 | ILP∞ 1.75  ganho W=3 1.69x
+   renomeado                nós      1699 | ciclos W=1      1699 W=2      1028 W=3       986 W=4       950 W=9       950 W=27       950 ∞       950 | ILP∞ 1.79  ganho W=3 1.72x
+   promovido(RA ideal)      nós      1547 | ciclos W=1      1547 W=2       937 W=3       900 W=4       857 W=9       857 W=27       857 ∞       857 | ILP∞ 1.81  ganho W=3 1.89x
+   quadro: 152 acessos (8.9%); slots ≤4 72.4% ≤10 90.8% ≤24 100.0% | cargas redundantes no bloco 30 (1.8%) | cmp→desvio 0 | li 3^k→mul/div 0 | prólogos 17 custo salvar s-regs k=4/10/24: [58, 82, 96]
+
+### sondas p1..p11 [tir]  usuário 1415 / núcleo 83591 instr (1.7% usuário)
+── usuário: 1415 instr, 304 blocos (média 4.65 instr/bloco)
+   mix: mem_quadro(s11) 19.1% · li 15.1% · ajuste_sp 13.6% · salto/chamada 12.4% · mem_pilha(sp) 12.3% · mov 7.1% · alu 6.7% · desvio 6.4% · §li 0 3.0% · trap/sys 2.7% · cmp 2.5% · §li→addi 2.3% · mul/div 2.0%
+   real(regs com WAR/WAW)   nós      1415 | ciclos W=1      1415 W=2       924 W=3       878 W=4       846 W=9       846 W=27       846 ∞       846 | ILP∞ 1.67  ganho W=3 1.61x
+   renomeado                nós      1415 | ciclos W=1      1415 W=2       905 W=3       869 W=4       837 W=9       837 W=27       837 ∞       837 | ILP∞ 1.69  ganho W=3 1.63x
+   promovido(RA ideal)      nós      1145 | ciclos W=1      1145 W=2       723 W=3       685 W=4       637 W=9       636 W=27       636 ∞       636 | ILP∞ 1.80  ganho W=3 2.07x
+   quadro: 270 acessos (19.1%); slots ≤4 63.0% ≤10 97.8% ≤24 100.0% | cargas redundantes no bloco 34 (2.4%) | cmp→desvio 18 | li 3^k→mul/div 0 | prólogos 19 custo salvar s-regs k=4/10/24: [90, 126, 130]
+
+### fuzz 300 [pilha]  usuário 889704 / núcleo 10942751 instr (7.5% usuário)
+── usuário: 889704 instr, 192938 blocos (média 4.61 instr/bloco)
+   mix: ajuste_sp 15.9% · mem_pilha(sp) 15.7% · alu 15.7% · li 14.1% · desvio 9.5% · salto/chamada 8.8% · mov 8.0% · mul/div 5.7% · trap/sys 3.4% · §li 0 2.1% · mem_quadro(s11) 1.9% · cmp 1.3% · §li→addi 1.0%
+   real(regs com WAR/WAW)   nós    889704 | ciclos W=1    889704 W=2    574979 W=3    516684 W=4    486896 W=9    486874 W=27    486874 ∞    486874 | ILP∞ 1.83  ganho W=3 1.72x
+   renomeado                nós    889704 | ciclos W=1    889704 W=2    555895 W=3    493629 W=4    461730 W=9    461695 W=27    461695 ∞    461695 | ILP∞ 1.93  ganho W=3 1.80x
+   promovido(RA ideal)      nós    872402 | ciclos W=1    872402 W=2    547703 W=3    487625 W=4    456382 W=9    456319 W=27    456319 ∞    456319 | ILP∞ 1.91  ganho W=3 1.82x
+   quadro: 17302 acessos (1.9%); slots ≤4 75.1% ≤10 91.7% ≤24 98.6% | cargas redundantes no bloco 1607 (0.2%) | cmp→desvio 0 | li 3^k→mul/div 0 | prólogos 1465 custo salvar s-regs k=4/10/24: [9554, 15262, 17874]
+test pesquisa_paralelismo has been running for over 60 seconds
+
+### fuzz 300 [tir]  usuário 848222 / núcleo 10321361 instr (7.6% usuário)
+── usuário: 848222 instr, 188875 blocos (média 4.49 instr/bloco)
+   mix: alu 16.4% · li 13.4% · ajuste_sp 11.2% · mem_quadro(s11) 11.1% · mem_pilha(sp) 11.0% · desvio 9.5% · salto/chamada 9.2% · mov 7.2% · mul/div 5.9% · trap/sys 3.5% · §li→addi 1.4% · cmp 1.4% · §li 0 1.2%
+   real(regs com WAR/WAW)   nós    848222 | ciclos W=1    848222 W=2    574431 W=3    522784 W=4    492955 W=9    492935 W=27    492935 ∞    492935 | ILP∞ 1.72  ganho W=3 1.62x
+   renomeado                nós    848222 | ciclos W=1    848222 W=2    546323 W=3    492217 W=4    460578 W=9    460195 W=27    460195 ∞    460195 | ILP∞ 1.84  ganho W=3 1.72x
+   promovido(RA ideal)      nós    753810 | ciclos W=1    753810 W=2    486414 W=3    434002 W=4    402171 W=9    401518 W=27    401518 ∞    401518 | ILP∞ 1.88  ganho W=3 1.95x
+   quadro: 94412 acessos (11.1%); slots ≤4 19.9% ≤10 54.0% ≤24 91.7% | cargas redundantes no bloco 9027 (1.1%) | cmp→desvio 3911 | li 3^k→mul/div 53 | prólogos 1551 custo salvar s-regs k=4/10/24: [12250, 29152, 53698]
+
+### sistema pingr+pong [pilha] usuário 1002 / núcleo 32604 (3.0% usuário)
+── usuário: 1002 instr, 199 blocos (média 5.04 instr/bloco)
+   mix: li 21.2% · ajuste_sp 16.7% · mem_pilha(sp) 16.6% · mem_quadro(s11) 10.4% · desvio 9.2% · mov 7.9% · salto/chamada 5.8% · §li 0 5.1% · alu 5.0% · trap/sys 4.9% · cmp 2.1% · mul/div 0.4%
+   real(regs com WAR/WAW)   nós      1002 | ciclos W=1      1002 W=2       600 W=3       560 W=4       514 W=9       514 W=27       514 ∞       514 | ILP∞ 1.95  ganho W=3 1.79x
+   renomeado                nós      1002 | ciclos W=1      1002 W=2       588 W=3       507 W=4       461 W=9       461 W=27       461 ∞       461 | ILP∞ 2.17  ganho W=3 1.98x
+   promovido(RA ideal)      nós       898 | ciclos W=1       898 W=2       525 W=3       495 W=4       449 W=9       449 W=27       449 ∞       449 | ILP∞ 2.00  ganho W=3 2.02x
+   quadro: 104 acessos (10.4%); slots ≤4 100.0% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 10 (1.0%) | cmp→desvio 0 | li 3^k→mul/div 0 | prólogos 1 custo salvar s-regs k=4/10/24: [6, 6, 6]
+── núcleo: 32604 instr, 9461 blocos (média 3.45 instr/bloco)
+   mix: mem_outra 34.1% · alu 29.2% · desvio 26.4% · li 3.6% · salto/chamada 2.4% · csr 1.7% · mov 1.2% · ajuste_sp 0.6% · mem_pilha(sp) 0.6% · §li 0 0.3% · trap/sys 0.2% · mem_quadro(s11) 0.0% · mul/div 0.0% · cmp 0.0%
+   real(regs com WAR/WAW)   nós     32604 | ciclos W=1     32604 W=2     21537 W=3     20474 W=4     20099 W=9     19654 W=27     19605 ∞     19605 | ILP∞ 1.66  ganho W=3 1.59x
+   renomeado                nós     32604 | ciclos W=1     32604 W=2     21431 W=3     20272 W=4     19916 W=9     19418 W=27     19222 ∞     19222 | ILP∞ 1.70  ganho W=3 1.61x
+   promovido(RA ideal)      nós     32604 | ciclos W=1     32604 W=2     21431 W=3     20272 W=4     19916 W=9     19418 W=27     19222 ∞     19222 | ILP∞ 1.70  ganho W=3 1.61x
+   quadro: 0 acessos (0.0%); slots ≤4 0.0% ≤10 0.0% ≤24 0.0% | cargas redundantes no bloco 0 (0.0%) | cmp→desvio 1 | li 3^k→mul/div 0 | prólogos 1 custo salvar s-regs k=4/10/24: [8, 20, 24]
+
+### sistema pingr+pong [tir] usuário 695 / núcleo 31915 (2.1% usuário)
+── usuário: 695 instr, 178 blocos (média 3.90 instr/bloco)
+   mix: li 25.9% · mem_quadro(s11) 23.9% · desvio 10.2% · salto/chamada 8.3% · mov 7.9% · alu 7.2% · trap/sys 7.1% · §li 0 4.2% · ajuste_sp 3.0% · cmp 3.0% · mem_pilha(sp) 2.9% · §li→addi 2.9% · mul/div 0.6%
+   real(regs com WAR/WAW)   nós       695 | ciclos W=1       695 W=2       441 W=3       400 W=4       365 W=9       354 W=27       354 ∞       354 | ILP∞ 1.96  ganho W=3 1.74x
+   renomeado                nós       695 | ciclos W=1       695 W=2       418 W=3       390 W=4       345 W=9       334 W=27       334 ∞       334 | ILP∞ 2.08  ganho W=3 1.78x
+   promovido(RA ideal)      nós       529 | ciclos W=1       529 W=2       346 W=3       326 W=4       290 W=9       279 W=27       279 ∞       279 | ILP∞ 1.90  ganho W=3 2.13x
+   quadro: 166 acessos (23.9%); slots ≤4 75.9% ≤10 100.0% ≤24 100.0% | cargas redundantes no bloco 0 (0.0%) | cmp→desvio 21 | li 3^k→mul/div 0 | prólogos 1 custo salvar s-regs k=4/10/24: [8, 12, 12]
+── núcleo: 31915 instr, 9249 blocos (média 3.45 instr/bloco)
+   mix: mem_outra 34.5% · alu 28.7% · desvio 26.5% · li 3.7% · salto/chamada 2.3% · csr 1.8% · mov 1.2% · ajuste_sp 0.6% · mem_pilha(sp) 0.6% · §li 0 0.3% · trap/sys 0.2% · mul/div 0.0% · mem_quadro(s11) 0.0% · cmp 0.0%
+   real(regs com WAR/WAW)   nós     31915 | ciclos W=1     31915 W=2     21113 W=3     20103 W=4     19728 W=9     19283 W=27     19234 ∞     19234 | ILP∞ 1.66  ganho W=3 1.59x
+   renomeado                nós     31915 | ciclos W=1     31915 W=2     21007 W=3     19901 W=4     19545 W=9     19047 W=27     18851 ∞     18851 | ILP∞ 1.69  ganho W=3 1.60x
+   promovido(RA ideal)      nós     31915 | ciclos W=1     31915 W=2     21007 W=3     19901 W=4     19545 W=9     19047 W=27     18851 ∞     18851 | ILP∞ 1.69  ganho W=3 1.60x
+   quadro: 0 acessos (0.0%); slots ≤4 0.0% ≤10 0.0% ≤24 0.0% | cargas redundantes no bloco 0 (0.0%) | cmp→desvio 1 | li 3^k→mul/div 0 | prólogos 1 custo salvar s-regs k=4/10/24: [8, 20, 24]
+
+######## TOTAL corpus de usuário [pilha]
+── usuário (todos): 2127089 instr, 324760 blocos (média 6.55 instr/bloco)
+   mix: ajuste_sp 20.2% · mem_pilha(sp) 19.9% · li 14.1% · mem_quadro(s11) 11.4% · alu 8.4% · desvio 8.0% · salto/chamada 5.9% · mul/div 4.5% · §li 0 4.0% · mov 3.8% · cmp 2.5% · trap/sys 1.4% · §li→addi 0.4%
+   real(regs com WAR/WAW)   nós   2127089 | ciclos W=1   2127089 W=2   1285320 W=3   1216055 W=4   1186212 W=9   1186190 W=27   1186190 ∞   1186190 | ILP∞ 1.79  ganho W=3 1.75x
+   renomeado                nós   2127089 | ciclos W=1   2127089 W=2   1257337 W=3   1150224 W=4   1118266 W=9   1118231 W=27   1118231 ∞   1118231 | ILP∞ 1.90  ganho W=3 1.85x
+   promovido(RA ideal)      nós   1884976 | ciclos W=1   1884976 W=2   1165751 W=3   1090997 W=4   1059688 W=9   1059625 W=27   1059625 ∞   1059625 | ILP∞ 1.78  ganho W=3 1.95x
+   quadro: 242113 acessos (11.4%); slots ≤4 92.7% ≤10 99.4% ≤24 99.9% | cargas redundantes no bloco 9829 (0.5%) | cmp→desvio 0 | li 3^k→mul/div 0 | prólogos 5551 custo salvar s-regs k=4/10/24: [33630, 42786, 45412]
+── núcleo (todos): 11174281 instr, 2880248 blocos (média 3.88 instr/bloco)
+   mix: mem_outra 34.3% · alu 32.9% · desvio 21.3% · salto/chamada 4.2% · li 2.9% · csr 2.8% · mov 0.7% · §li 0 0.3% · mem_pilha(sp) 0.3% · ajuste_sp 0.3% · trap/sys 0.3% · mul/div 0.0%
+   real(regs com WAR/WAW)   nós  11174281 | ciclos W=1  11174281 W=2   6991618 W=3   6317988 W=4   6098712 W=9   5818542 W=27   5787482 ∞   5787482 | ILP∞ 1.93  ganho W=3 1.77x
+   renomeado                nós  11174281 | ciclos W=1  11174281 W=2   6951423 W=3   6248197 W=4   6058406 W=9   5776976 W=27   5652736 ∞   5652736 | ILP∞ 1.98  ganho W=3 1.79x
+   promovido(RA ideal)      nós  11174281 | ciclos W=1  11174281 W=2   6951423 W=3   6248197 W=4   6058406 W=9   5776976 W=27   5652736 ∞   5652736 | ILP∞ 1.98  ganho W=3 1.79x
+   quadro: 0 acessos (0.0%); slots ≤4 0.0% ≤10 0.0% ≤24 0.0% | cargas redundantes no bloco 0 (0.0%) | cmp→desvio 0 | li 3^k→mul/div 0 | prólogos 0 custo salvar s-regs k=4/10/24: [0, 0, 0]
+
+######## TOTAL corpus de usuário [tir]
+── usuário (todos): 1672591 instr, 278696 blocos (média 6.00 instr/bloco)
+   mix: mem_quadro(s11) 29.8% · li 12.7% · alu 10.7% · ajuste_sp 8.6% · mem_pilha(sp) 8.3% · salto/chamada 7.4% · desvio 7.4% · mul/div 5.8% · mov 4.1% · cmp 3.3% · §li 0 2.1% · §li→addi 2.1% · trap/sys 1.8%
+   real(regs com WAR/WAW)   nós   1672591 | ciclos W=1   1672591 W=2   1117354 W=3   1040167 W=4   1009083 W=9   1009063 W=27   1009063 ∞   1009063 | ILP∞ 1.66  ganho W=3 1.61x
+   renomeado                nós   1672591 | ciclos W=1   1672591 W=2   1055708 W=3    979888 W=4    945283 W=9    943700 W=27    943700 ∞    943700 | ILP∞ 1.77  ganho W=3 1.71x
+   promovido(RA ideal)      nós   1173894 | ciclos W=1   1173894 W=2    774786 W=3    710936 W=4    670634 W=9    669979 W=27    669979 ∞    669979 | ILP∞ 1.75  ganho W=3 2.35x
+   quadro: 498697 acessos (29.8%); slots ≤4 53.1% ≤10 91.1% ≤24 98.4% | cargas redundantes no bloco 20612 (1.2%) | cmp→desvio 45583 | li 3^k→mul/div 6124 | prólogos 5639 custo salvar s-regs k=4/10/24: [44890, 77906, 103456]
+── núcleo (todos): 10531204 instr, 2681394 blocos (média 3.93 instr/bloco)
+   mix: mem_outra 35.2% · alu 31.9% · desvio 21.1% · salto/chamada 4.1% · li 3.1% · csr 3.0% · mov 0.8% · §li 0 0.3% · ajuste_sp 0.3% · mem_pilha(sp) 0.3% · trap/sys 0.3% · mul/div 0.0%
+   real(regs com WAR/WAW)   nós  10531204 | ciclos W=1  10531204 W=2   6588406 W=3   5956077 W=4   5737519 W=9   5458213 W=27   5427249 ∞   5427249 | ILP∞ 1.94  ganho W=3 1.77x
+   renomeado                nós  10531204 | ciclos W=1  10531204 W=2   6548307 W=3   5886754 W=4   5697585 W=9   5417019 W=27   5293163 ∞   5293163 | ILP∞ 1.99  ganho W=3 1.79x
+   promovido(RA ideal)      nós  10531204 | ciclos W=1  10531204 W=2   6548307 W=3   5886754 W=4   5697585 W=9   5417019 W=27   5293163 ∞   5293163 | ILP∞ 1.99  ganho W=3 1.79x
+   quadro: 0 acessos (0.0%); slots ≤4 0.0% ≤10 0.0% ≤24 0.0% | cargas redundantes no bloco 0 (0.0%) | cmp→desvio 0 | li 3^k→mul/div 0 | prólogos 0 custo salvar s-regs k=4/10/24: [0, 0, 0]
+test pesquisa_paralelismo ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 81.70s
+

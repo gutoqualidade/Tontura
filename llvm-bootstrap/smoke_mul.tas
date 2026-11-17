@@ -1,0 +1,10 @@
+    .include "/home/guto/tenerura/src/os/lib/abi.inc"
+    .org USER_TEXT
+_start:
+    li t1, 240
+    li t2, 7
+    mul t3, t1, t2
+    mov a1, t3
+    mov a2, a1
+    li a1, SYS_EXIT
+    sys

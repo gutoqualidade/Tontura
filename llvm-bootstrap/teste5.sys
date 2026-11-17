@@ -1,0 +1,6 @@
+# TENERURA — imagem mínima para o teste da GEP constante como argumento de chamada e alvo de store (string e array
+# globais, ponteiro como parâmetro, índice variável, GEP constante).
+# Núcleo real + uma tarefa de usuário. Sem capacidades: o programa não
+# imprime nada, só calcula e sai com o código de retorno de main().
+kernel /home/guto/tenerura/src/os/kernel/kernel.tas
+task teste5 ./teste5.tas

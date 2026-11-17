@@ -1,0 +1,10 @@
+$ t27 asm soma.tas
+      415     360903708873  addi sp, sp, 9               | addi sp, sp, 9
+      416     752628869964  jalr zr, 0(lr)               | ret
+── entrada: 365  palavras: 52
+
+$ t27 sys soma.sys 400000
+── parada: Halted(0)
+── passos: 10554  instruções: usuário 51  núcleo 10502  traps: falha 0  chamada 1  irq 0
+── tarefas:
+   0 soma       morta          geração 0  saiu com código 12

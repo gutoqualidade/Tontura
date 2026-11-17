@@ -137,7 +137,7 @@ fn kernel_refuses_bad_boot_table_and_out_of_memory() {
     // RAM pequena demais para as pilhas pedidas
     let img = build_system(&kernel(), &[task("gordo", user("spin")).stack(200)]).unwrap();
     let mut m = Machine::new(40 * 729 + 364);
-    img.load(&mut m);
+    img.load(&mut m).unwrap();
     assert_eq!(m.run(2_000_000), Stop::Halted(-img.ksym("PANIC_OOM")));
 }
 
@@ -151,6 +151,19 @@ fn kernel_fault_is_fail_stop() {
     s.m.poke(at, Word::ZERO);
     assert_eq!(s.m.run(2_000_000), Stop::Halted(-s.k("PANIC_NESTED")));
     assert_eq!(s.m.peek(s.k("panic_code")).unwrap().val(), s.k("PANIC_NESTED"));
+}
+
+#[test]
+fn fault_before_the_nested_check_stops_instead_of_livelocking() {
+    // F26 (verificação 2026-11-17): falha entre o `csrx` de trap_entry e a
+    // checagem de STATUS. Cada reentrada desfaz a troca do `csrx` e falha de
+    // novo: 330 026 traps em 2 M passos, sem parar. Trap síncrono com
+    // PMODE = núcleo é falha dentro do tratamento de falha: a máquina para.
+    let mut s = boot(victims());
+    let at = s.k("trap_entry") + 1;
+    s.m.poke(at, Word::ZERO);
+    assert_eq!(s.m.run(2_000_000), Stop::DoubleFault);
+    assert!(s.m.stats.traps_fault <= 2, "{} traps de falha", s.m.stats.traps_fault);
 }
 
 #[test]

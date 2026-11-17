@@ -1,0 +1,65 @@
+; ============================================================
+; GERADO POR tradutor.py — NÃO EDITE À MÃO
+; fonte: soma.ll
+; convenção: uma palavra de pilha por valor LLVM; sp cresce para baixo
+; ============================================================
+    .include "/home/guto/tenerura/src/os/lib/abi.inc"
+    .org USER_TEXT
+_start:
+    call main
+    mov a2, a1                  ; código de saída = valor de retorno de main
+    li a1, SYS_EXIT
+    sys
+
+soma:
+    addi sp, sp, -10
+    st lr, 9(sp)
+    st a1, 0(sp)
+    st a2, 1(sp)
+    ld t1, 0(sp)
+    st t1, 2(sp)
+    ld t1, 1(sp)
+    st t1, 3(sp)
+    ld t1, 2(sp)
+    st t1, 5(sp)
+    ld t1, 3(sp)
+    st t1, 6(sp)
+    ld t1, 5(sp)
+    ld t2, 6(sp)
+    add t3, t1, t2
+    st t3, 7(sp)
+    ld t1, 7(sp)
+    st t1, 4(sp)
+    ld t1, 4(sp)
+    st t1, 8(sp)
+    ld a1, 8(sp)
+    ld lr, 9(sp)
+    addi sp, sp, 10
+    ret
+
+main:
+    addi sp, sp, -9
+    st lr, 8(sp)
+    li t1, 0
+    st t1, 0(sp)
+    li t1, 5
+    st t1, 1(sp)
+    li t1, 7
+    st t1, 2(sp)
+    ld t1, 1(sp)
+    st t1, 4(sp)
+    ld t1, 2(sp)
+    st t1, 5(sp)
+    ld a1, 4(sp)
+    ld a2, 5(sp)
+    call soma
+    st a1, 6(sp)
+    ld t1, 6(sp)
+    st t1, 3(sp)
+    ld t1, 3(sp)
+    st t1, 7(sp)
+    ld a1, 7(sp)
+    ld lr, 8(sp)
+    addi sp, sp, 9
+    ret
+

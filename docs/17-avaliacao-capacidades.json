@@ -1,0 +1,724 @@
+{
+  "title": "TENERURA — avaliação de capacidades da linguagem (T27R / TIR / ISA T27)",
+  "date": "2026-11-17",
+  "note_2026_11_17_docs18": "Nota aditiva: docs/18-linguagem-projeto.md projeta a linguagem completa e muda, com motivo, 13 decisões desta avaliação (docs/18 §14): genéricos antes da auto-hospedagem, naked fn, nicho 0 nos dois modos, vistas, protocol + Reply linear, bool obrigatório em condição, família tN, packed, Outcome, #[stack(N)], static mut por resumo, TIR como formato objeto, critério estágio 0 == estágio 1. Onde docs/18 não contraria, esta avaliação vale.",
+  "evidence_base": {
+    "commit": "cdcd789 (Fase 9), ~/tenerura-sandbox",
+    "sources": [
+      "docs/07-isa-t27.md (ISA; a fonte de verdade da máquina, com src/t27/src/machine.rs)",
+      "docs/08-micronucleo.md (núcleo: eventos, não preemptível, pilha única, IPC por registradores)",
+      "docs/11-linguagem-t27r.md (gramática T27R, §E faltas, §G ordem de extensão)",
+      "docs/13-tir.md, docs/14-tir-system-abi.md, docs/15-tir-memory-layout.md, docs/16-tir-hardware-intrinsics.md",
+      "src/t27/src/lang/{lex,parse,check,lower,ir,irgen}.rs",
+      "src/os/lib/abi.inc (chamadas de sistema 0..11)"
+    ],
+    "verification_state": "tools/verificar-tudo.sh em cdcd789: 100 testes, 0 falhas; Rust × Haskell 30 000 casos, 0 divergências; provas Lean ok",
+    "status_legend": {
+      "yes": "existe e há teste que exercita",
+      "partial": "existe uma parte; o resto não",
+      "no": "não existe código",
+      "n/a": "a pergunta não se aplica à máquina"
+    },
+    "decision_legend": {
+      "keep": "já existe; manter como está",
+      "adopt": "implementar, na forma perguntada",
+      "modify": "implementar numa forma diferente da perguntada (dita no item)",
+      "postpone": "viável, mas depende de algo que ainda não existe",
+      "reject": "não implementar; motivo dado"
+    }
+  },
+
+  "machine_facts_that_decide_most_items": [
+    "Palavra de 27 trits, ternário BALANCEADO, faixa ±3 812 798 742 493; memória endereçada por PALAVRA; não há unidade menor endereçável (docs/07 §2). Logo: não há byte, alinhamento é sempre 1, não há preenchimento (docs/15 §1).",
+    "Sem ponto flutuante, sem registradores vetoriais, sem flags, sem barreiras, sem multiprocessador; a única operação atômica é csrx (troca de CSR) (docs/07 §4, §8).",
+    "cmp devolve um trit; kmin/kmax são ∧/∨ de Kleene trit a trit; os desvios são de DOIS destinos (beq bne blt bge bgt ble); despacho de três vias = dois desvios sobre o mesmo valor.",
+    "Núcleo: não preemptível, uma CPU, uma pilha; tarefas isoladas por espaço de endereçamento; IPC copia até 7 palavras em registradores (a3..a9); não há chamada para mapear memória nem memória compartilhada (abi.inc: SYS_YIELD..SYS_CAP_GRANT).",
+    "Endereço 0: página 0 não mapeada em modo usuário (guarda de nulo nos dois sentidos), mas em modo núcleo o endereçamento é físico e o endereço 0 é RAM válida (reset: PC = 0) (docs/07 §6–§7).",
+    "Pilha de tarefa: 729 palavras; pilha do núcleo: limite 64, máximo observado 24 (docs/11 §E, docs/08 §8)."
+  ],
+
+  "capabilities": {
+    "1_ternary_architecture_hardware_and_bootstrap": [
+      {
+        "name": "Native Ternary Primitive Types",
+        "implemented": {"status": "partial", "evidence": "Um tipo: word (27 trits, ternário balanceado) no T27R; word e ptr opaco no TIR (ir.rs Ty). sign(x) devolve um trit, mas como word. Não existe tipo trit nem tryte."},
+        "planned": "Nada registrado para trit/tryte.",
+        "feasible": "trit: sim (subtipo de word com faixa −1..+1, ocupando uma palavra). tryte como unidade de armazenamento: não sem mudar a ISA (sem acesso a subpalavra). Campos de trit dentro da palavra: sim, por aritmética (dois shi), como a PTE já faz.",
+        "isa_fit": "word: nativa. trit: nativo como VALOR (cmp, sgn, kmin/kmax). tryte: não é endereçável; empacotar trytes numa palavra custa shi+aritmética em cada acesso. byte de 8 bits: estranho à máquina.",
+        "complexity": "low",
+        "performance": "trit como palavra: custo zero. Campos de trit empacotados: 2–4 instruções por leitura; vale só onde memória importa (não medido).",
+        "decision": "modify",
+        "rationale": "Adotar `trit` como tipo de primeira classe (faixa conferida na compilação; literais −1, 0, +1) e manter word como única unidade de armazenamento. Recusar tryte/byte como tipo de memória: seria inventar endereçamento de subpalavra. Empacotamento de trits em campos fica para tipos de registro com campos de trit (adiado, docs/15 §6)."
+      },
+      {
+        "name": "Three-Valued Logic and Ternary Branching",
+        "implemented": {"status": "partial", "evidence": "ISA: cmp → trit; kmin/kmax (Kleene). T27R: `match sign(x) { -1 => .., 0 => .., _ => .. }` (teste recursao_e_match_de_tres_vias); TIR tem Switch. Verdade = palavra não nula; não há tipo lógico de três valores; kmin/kmax NÃO estão expostas no T27R (BinK não as tem)."},
+        "planned": "docs/11 §F aponta o Result ternário (o sinal é o discriminante).",
+        "feasible": "Sim, só no front end + 2 BinK novos no TIR.",
+        "isa_fit": "Alta para a lógica (kmin/kmax são exatamente ∧/∨ de Kleene; neg é ¬). Desvio de três destinos NÃO existe: o compilador emite dois desvios (bn/bp) sobre o mesmo registrador, que é o que o núcleo já faz com CAUSE.",
+        "complexity": "low",
+        "performance": "Despacho de três vias = cmp + 2 desvios. Uma instrução de desvio de três destinos não foi medida e não deve ser pedida à ISA sem medição.",
+        "decision": "adopt",
+        "rationale": "Tipo `trit` com operadores de Kleene (mapeados em kmin/kmax/sub de zr), `match` sobre trit exaustivo com 3 braços sem `_` obrigatório, e `cmp(a,b) -> trit`. if/while continuam binários (não zero = verdadeiro); um trit NÃO vira condição implícita — decidir em três vias é sempre match, para que 'zero = indefinido' nunca seja interpretado em silêncio. Não mudar a ISA."
+      },
+      {
+        "name": "Ternary SIMD and Vectors",
+        "implemented": {"status": "no", "evidence": "Não há registradores vetoriais na ISA (docs/07 §3–§4)."},
+        "planned": "Nada.",
+        "feasible": "Tipos vetoriais com hardware: não (seria inventar hardware). 'SWAR' ternário: kmin/kmax já operam nos 27 trits de uma vez — um conjunto de 27 valores lógicos de três estados por palavra.",
+        "isa_fit": "Só a forma SWAR com kmin/kmax/neg.",
+        "complexity": "low",
+        "performance": "SWAR: 27 operações de Kleene por instrução. Vetores reais: inexistentes.",
+        "decision": "reject",
+        "rationale": "Recusar tipos SIMD. No lugar, um tipo de biblioteca `Trits27` (palavra vista como 27 trits, com ∧/∨/¬ e extração por deslocamento) depois que `trit` existir. Revisitar só se a ISA ganhar vetores (decisão de ISA, docs/07)."
+      },
+      {
+        "name": "Direct Native Ahead-of-Time Compilation",
+        "implemented": {"status": "yes", "evidence": "T27R → TIR → .tas → montador (asm.rs) → palavras T27 executadas pela máquina; sem VM, bytecode ou JIT. Teste diferencial: 300 programas aleatórios, núcleo real, 0 divergências (tests/tir_system.rs, tests/lang.rs). A máquina é um emulador, mas o código é o da ISA, não uma representação intermediária."},
+        "planned": "—",
+        "feasible": "—",
+        "isa_fit": "Total.",
+        "complexity": "low",
+        "performance": "Código gerado: fib 13 291 instruções de usuário (antes 18 599, gerador de pilha). Sem alocação de registradores: laços quentes ~5× mais lentos que assembly à mão (docs/14 §0).",
+        "decision": "keep",
+        "rationale": "É a base. Próximo ganho é alocação de registradores, não outra camada."
+      },
+      {
+        "name": "Lean Compilation Pipeline",
+        "implemented": {"status": "yes", "evidence": "lex → parse → check → lower (uma passada, SSA lexical) → validate → irgen → montador. Medido (tir_bench, 2000 funções): lower 6,2 ms; validate 4,0 ms; irgen 22,0 ms (1 thread) / 4,5 ms (56 threads)."},
+        "planned": "docs/13 §M: otimizador futuro como passes TIR→TIR.",
+        "feasible": "—",
+        "isa_fit": "n/a",
+        "complexity": "low",
+        "performance": "Medida acima. O caminho sequencial via TIR é ~13% mais lento que o gerador de pilha antigo (19,5 ms); o paralelo é mais rápido.",
+        "decision": "keep",
+        "rationale": "Regra: TIR é a única IR; todo pass novo é TIR→TIR, validado no fim, com custo medido em tir_bench antes de entrar. Sem segunda IR (AST tipada + TIR bastam)."
+      },
+      {
+        "name": "Self-Hosting and Bootstrap",
+        "implemented": {"status": "no", "evidence": "O compilador é Rust no hospedeiro. T27R não tem arrays locais, registros, strings nem leitura de entrada."},
+        "planned": "docs/14 §9 lista auto-hospedagem como não feita.",
+        "feasible": "Sim, com dependências: (1) arrays/registros; (2) literais de texto como arrays de palavras; (3) um alocador de arena; (4) entrada/saída SEM inventar dispositivo: fonte embutida na imagem pelo construtor (sysimage.rs) e saída pelo console TX, ou ambos pelo console (RX existe, docs/07 §7).",
+        "isa_fit": "Boa. O que não foi medido: quantas palavras de memória uma tarefa pode receber e quantos passos de máquina custa compilar o próprio compilador no emulador.",
+        "complexity": "high",
+        "performance": "Desconhecida até medir. Risco: compilador de alguns milhares de linhas sem alocação de registradores dentro de pilha de 729 palavras.",
+        "decision": "modify",
+        "rationale": "NÃO escrever semente em assembly: o compilador Rust já é o estágio 0 confiável (como OCaml foi para Rust). Caminho: estágio 0 (Rust) compila o compilador em T27R → estágio 1 roda no emulador e compila a si mesmo → estágio 2; critério de aceitação: saída TIR binária do estágio 1 == do estágio 2, byte a byte (o formato canônico de docs/13 §G torna isso verificável). Subconjunto mínimo para escrever o compilador: word, trit, fn, if/while/match, arrays e registros de word, enums de um campo, slices, strings como [word], arena, módulos simples. Sem genéricos, sem fechos, sem traits. Semente em assembly só se um dia se quiser compilação dupla diversa (confiança), não por necessidade."
+      },
+      {
+        "name": "Inline Assembly and Hardware Access",
+        "implemented": {"status": "partial", "evidence": "Sem asm embutido. Acesso a hardware por intrínsecas tipadas: csr_read/csr_write/csr_swap/wfi/tlbi/phys_read/phys_write (núcleo) e yield/time/call/recv/recv_val (usuário) — docs/16, validadas por modo nos dois sentidos."},
+        "planned": "`extern fn` (chamar assembly a partir de TIR) — docs/14 §9.",
+        "feasible": "asm livre: sim tecnicamente, mas quebra a validação do TIR (proveniência, registradores usados, efeito) e a futura alocação de registradores.",
+        "isa_fit": "As intrínsecas cobrem toda instrução privilegiada útil fora eret (que fica na camada 0 por sair sem epílogo).",
+        "complexity": "medium",
+        "performance": "extern fn custa uma chamada (~6 instruções de quadro) contra zero do asm embutido.",
+        "decision": "modify",
+        "rationale": "Recusar asm embutido. Adotar: (a) `extern fn` para rotinas .tas sob a ABI de docs/14; (b) uma intrínseca por instrução necessária; (c) `sys` cru (número + até 9 palavras) como intrínseca de usuário, para chamadas que a biblioteca ainda não embrulha. Registrador específico só via ABI/intrínseca."
+      },
+      {
+        "name": "Native Embedding and ABI",
+        "implemented": {"status": "partial", "evidence": "ABI fixada (docs/14 §2–§4: a1..a9, resultado em a1, s1..s11/sp preservados, símbolos fn_<nome>); modo biblioteca sem _start (entry = NO_ENTRY); nenhuma inicialização global em tempo de execução (statics são .data definido fora). Teste de ABI com 9 argumentos e registradores preservados. Ligação = .include textual do montador; não há formato objeto nem ligador."},
+        "planned": "—",
+        "feasible": "Biblioteca estática: sim (formato objeto + ligador simples). Biblioteca compartilhada: exige carregador dinâmico e mapeamento de memória em tempo de execução, que o núcleo não tem.",
+        "isa_fit": "Estática: boa (jal/jalr, código independente de posição é natural com PC-relativo). Compartilhada: não há suporte do sistema.",
+        "complexity": "medium",
+        "performance": "Chamada direta, sem trampolim.",
+        "decision": "modify",
+        "rationale": "Manter a ABI. Adotar bibliotecas estáticas (primeiro por .include, depois um formato objeto ternário mínimo se a compilação separada doer). Recusar bibliotecas compartilhadas: não há carregador nem chamada para mapear memória, e o ganho num sistema de imagem única é nulo."
+      }
+    ],
+
+    "2_memory_management_models": [
+      {
+        "name": "Linear Regions and Arenas",
+        "implemented": {"status": "no", "evidence": "Na linguagem, não. O núcleo tem um alocador de quadros por avanço (free_next, docs/15 §4), em assembly."},
+        "planned": "—",
+        "feasible": "Sim: arena = static mut [word; n] + deslocamento; liberação em O(1) = zerar o deslocamento. A memória vem do .data da imagem (tamanho fixo na construção), porque não há chamada para pedir memória ao núcleo.",
+        "isa_fit": "Boa: avanço é addi; limite é um desvio.",
+        "complexity": "low",
+        "performance": "Alocação: ~3 instruções + verificação de limite. Liberação: 1 st.",
+        "decision": "adopt",
+        "rationale": "Modelo de alocação principal da linguagem. Ponteiros de arena herdam a proveniência do global de onde saem (o validador do TIR já confere deslocamentos constantes contra o tamanho do global). Memória crescente exigiria uma chamada de mapeamento no núcleo: decisão de núcleo, não da linguagem."
+      },
+      {
+        "name": "Unique Ownership and Scope-Based Cleanup",
+        "implemented": {"status": "partial", "evidence": "Só no núcleo, e só para capacidades: SYS_CAP_GRANT MOVE autoridade, conferido pelo invariante I12 (docs/11 §F.3). A linguagem não tem posse nem destrutores."},
+        "planned": "docs/11 §G.5: tipos de capacidade no front end (Cap<Send>, Cap<Recv>).",
+        "feasible": "Tipos lineares/afins: sim, análise de front end em uma passada sobre a árvore estruturada. Destrutores automáticos: sim, mas não há o que destruir (não há heap; não há chamada para fechar capacidade).",
+        "isa_fit": "n/a (front end).",
+        "complexity": "medium",
+        "performance": "Zero em execução.",
+        "decision": "modify",
+        "rationale": "Adotar posse única com MOVE só para tipos que representam recurso do sistema (capacidades, e mais tarde handles de arena). Não adotar destrutores implícitos (RAII): com arenas a liberação é em bloco e o `defer` (6.3) cobre a restauração explícita. Isso mantém o código gerado previsível e sem 'drop glue'."
+      },
+      {
+        "name": "Static Borrow and Lifetime Checking",
+        "implemented": {"status": "no", "evidence": "Não há referências na superfície do T27R. O TIR tem ptr opaco com proveniência (slot/global) e verificação estática de deslocamento constante."},
+        "planned": "docs/11 §E: faz sentido quando houver heap ou memória compartilhada.",
+        "feasible": "Verificador completo estilo Rust: caro (anotação de tempo de vida, análise de fluxo) e pesa na auto-hospedagem. Referências de segunda classe (parâmetros &/&mut que não podem ser guardados nem devolvidos): verificação local, em uma passada.",
+        "isa_fit": "n/a",
+        "complexity": "high (completo) / low (segunda classe)",
+        "performance": "Zero em execução.",
+        "decision": "modify",
+        "rationale": "Adotar semântica de valor mutável com referências de segunda classe: `&mut x` só como argumento, nunca guardado, nunca devolvido; exclusividade conferida no ponto de chamada. Dá ausência de alias mutável e de referência pendurada sem anotações de tempo de vida. Ponteiros de arena (índices) cobrem o que precisaria de referência guardada. Reavaliar o verificador completo só se aparecer código que não cabe nisso."
+      },
+      {
+        "name": "Manual Allocation and Unsafe Blocks",
+        "implemented": {"status": "partial", "evidence": "Não há alloc/free. Acesso cru existe só como phys_read/phys_write no modo núcleo, restrito pelo validador; não há bloco `unsafe` na sintaxe."},
+        "planned": "—",
+        "feasible": "Sim.",
+        "isa_fit": "Boa.",
+        "complexity": "low",
+        "performance": "—",
+        "decision": "modify",
+        "rationale": "Adotar `unsafe { }` como marca obrigatória para phys_*, aritmética de ponteiro fora de slice/arena e `extern fn`. Não adotar malloc/free global: sem fonte de memória dinâmica no sistema, um free-list só reempacota o .data e esconde fragmentação. Alocação = arena (2.1)."
+      },
+      {
+        "name": "Reference Counting",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "Sim, como biblioteca, quando houver registros e arena. Uma CPU → contagem não atômica basta.",
+        "isa_fit": "Boa (sem necessidade de atômicas).",
+        "complexity": "medium",
+        "performance": "+1 palavra por objeto, inc/dec por cópia.",
+        "decision": "postpone",
+        "rationale": "Sem heap, não há o que contar. Se vier, biblioteca (Rc<T> sobre arena), nunca automático. Mutabilidade interior: dispensável com semântica de valor e uma única thread por tarefa."
+      },
+      {
+        "name": "Garbage Collection and Escape Analysis",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "GC: sim tecnicamente; incompatível com núcleo não preemptível, pilha de 729 palavras e determinismo de passos (os testes comparam contagens exatas de passos).",
+        "isa_fit": "Indiferente; o problema é o sistema, não a ISA.",
+        "complexity": "high",
+        "performance": "Pausas e memória extra; quebra a previsibilidade medida hoje (demo2 em passos exatos).",
+        "decision": "reject",
+        "rationale": "Recusar GC. Recusar análise de escape que PROMOVE para heap (conflita com 2.7). Análise de escape só como otimização interna (manter valores em registradores em vez de slot), quando houver alocação de registradores."
+      },
+      {
+        "name": "Zero Implicit Allocation",
+        "implemented": {"status": "yes", "evidence": "O TIR só tem duas origens de memória: slot (quadro) e global (docs/13 §C, Fase 9). Não existe heap para o compilador usar; nenhum valor é 'encaixotado'."},
+        "planned": "—",
+        "feasible": "—",
+        "isa_fit": "—",
+        "complexity": "low",
+        "performance": "Previsível.",
+        "decision": "keep",
+        "rationale": "Elevar a garantia de fato a regra da especificação: nenhuma construção da linguagem aloca fora do quadro sem uma chamada visível (arena). Complemento recomendado: limite estático de pilha para grafos de chamada sem recursão — o núcleo já depende de um limite (64) que hoje só é conferido por teste."
+      }
+    ],
+
+    "3_data_layout_and_cache_locality": [
+      {
+        "name": "Flat Data Layouts",
+        "implemented": {"status": "partial", "evidence": "Regra de layout definida (docs/15 §2–§3: campos em ordem, sem preenchimento, arrays contíguos) e conferida contra o TCB do núcleo; a linguagem ainda não tem registros nem arrays locais."},
+        "planned": "docs/15 §6: registro = slot do tamanho total + ptradd constante; sem mudar o TIR.",
+        "feasible": "Sim.",
+        "isa_fit": "Alta: endereçamento por palavra e ld/st com imediato de 16 trits dão acesso a campo em uma instrução.",
+        "complexity": "medium",
+        "performance": "Sem efeito de cache mensurável: o emulador não modela cache (docs/16 §3.1). Ganho real hoje = menos instruções de endereço.",
+        "decision": "adopt",
+        "rationale": "Registros e arrays aninhados inline por padrão. Strings: array de palavras com comprimento (uma palavra por caractere, docs/07 §2); empacotar caracteres em trytes fica adiado até medir densidade de texto."
+      },
+      {
+        "name": "Short Relative Pointers",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "Sim, como índice relativo a uma base (arena, bloco).",
+        "isa_fit": "Natural: ld/st base+imediato; endereços são balanceados, então deslocamentos negativos são de graça. Porém NÃO economiza espaço: todo campo ocupa uma palavra, não existem larguras de 1/2/4 unidades.",
+        "complexity": "low",
+        "performance": "+1 add por desreferência.",
+        "decision": "modify",
+        "rationale": "Adotar como `Idx<T>` (deslocamento de palavra dentro de uma arena), pelo ganho de relocação e serialização (bloco copiável e enviável), não por tamanho. Recusar 'ponteiros curtos' de largura menor: a máquina não tem subpalavra."
+      },
+      {
+        "name": "Native Absolute Pointers",
+        "implemented": {"status": "partial", "evidence": "ptr opaco de uma palavra no TIR, com proveniência e sem conversão inteiro↔ponteiro (docs/13 §C, docs/16 §3.1); não exposto na superfície do T27R."},
+        "planned": "—",
+        "feasible": "Sim.",
+        "isa_fit": "Total (uma palavra = um endereço).",
+        "complexity": "low",
+        "performance": "—",
+        "decision": "adopt",
+        "rationale": "Expor como referência de segunda classe (2.3), slice (5.1) e ponteiro cru só em `unsafe`. Manter a proibição de inteiro→ponteiro."
+      },
+      {
+        "name": "Guaranteed In-Place Construction",
+        "implemented": {"status": "no", "evidence": "Não há valores compostos."},
+        "planned": "—",
+        "feasible": "Sim: resultado composto escrito pelo chamado num slot do chamador (ponteiro oculto).",
+        "isa_fit": "Boa.",
+        "complexity": "medium",
+        "performance": "Evita cópias de registros grandes.",
+        "decision": "adopt",
+        "rationale": "Regra de ABI para quando houver registros: até 9 palavras de resultado em a1..a9 (mesma forma da mensagem IPC); acima disso, ponteiro oculto em a1 e construção garantida no destino. Fixar isso em docs/14 ANTES de implementar registros, para não mudar a ABI depois."
+      },
+      {
+        "name": "Stable References in Dynamic Collections",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "Por reserva de memória virtual: não (não há chamada de mapeamento). Por coleção segmentada sobre arena (blocos que nunca se movem): sim.",
+        "isa_fit": "Boa para segmentada.",
+        "complexity": "low",
+        "performance": "Indexação: divisão/resto por tamanho de bloco; com blocos de 3^k é um shi (divisão centrada da máquina ≡ descarte de dígitos).",
+        "decision": "modify",
+        "rationale": "Adotar coleção segmentada em blocos de 3^k na biblioteca (estável por construção, já que arenas não se movem). Reserva virtual adiada até o núcleo ter mapeamento."
+      },
+      {
+        "name": "Explicit Alignment and Layout Control",
+        "implemented": {"status": "yes", "evidence": "Layout determinístico sem reordenação e sem preenchimento, com registro centrado (docs/15 §2); conferido por teste contra o núcleo."},
+        "planned": "—",
+        "feasible": "Alinhamento: não se aplica (sempre 1). Empacotamento de campos de trit: sim, adiado. SoA × AoS: sim, como escolha manual.",
+        "isa_fit": "Alinhamento: n/a. Registro centrado: nativo do balanceado.",
+        "complexity": "low",
+        "performance": "Benefício de SoA não mensurável no emulador sem cache.",
+        "decision": "modify",
+        "rationale": "Recusar atributos de alinhamento (sem sentido). Adotar a palavra-chave para registro centrado quando houver registros. Campos de trit empacotados e um atributo SoA: adiar; nada a ganhar mensurável hoje."
+      }
+    ],
+
+    "4_type_system_and_polymorphism": [
+      {
+        "name": "Static Typing and Type Inference",
+        "implemented": {"status": "partial", "evidence": "Estático com um tipo (word); anotação opcional em let; parâmetros e retorno anotados. TIR tipado (word, ptr) e validado."},
+        "planned": "—",
+        "feasible": "Sim.",
+        "isa_fit": "n/a",
+        "complexity": "low",
+        "performance": "—",
+        "decision": "adopt",
+        "rationale": "Tipagem estática forte, inferência só local (let), assinaturas sempre explícitas. Sem inferência global (custa na auto-hospedagem e nas mensagens de erro)."
+      },
+      {
+        "name": "Tagged Unions and Pattern Matching",
+        "implemented": {"status": "partial", "evidence": "match sobre literais com `_` obrigatório e padrões repetidos recusados (docs/11 §B); sem enum."},
+        "planned": "docs/11 §G.2–§G.3: enum de um campo, depois registros.",
+        "feasible": "Sim.",
+        "isa_fit": "Alta: enum de 3 variantes tem discriminante de um trit e o despacho é cmp + 2 desvios; Result pode usar o sinal como discriminante (o núcleo já devolve −1/0/+1).",
+        "complexity": "medium",
+        "performance": "Discriminante de uma palavra + maior variante.",
+        "decision": "adopt",
+        "rationale": "enum com payload, match exaustivo conferido na compilação, Option/Result na biblioteca. Etapa 2 do roteiro."
+      },
+      {
+        "name": "Variable-Size Variants",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "Sim, mas só em contêineres sequenciais: perde indexação O(1) e conflita com referências estáveis (3.5).",
+        "isa_fit": "Indiferente.",
+        "complexity": "medium",
+        "performance": "Menos memória, acesso sequencial.",
+        "decision": "postpone",
+        "rationale": "Não é recurso de linguagem: é um contêiner de biblioteca (fluxo de registros tag+comprimento numa arena), quando houver genéricos."
+      },
+      {
+        "name": "Null Safety",
+        "implemented": {"status": "n/a", "evidence": "Não há referências na superfície."},
+        "planned": "—",
+        "feasible": "Sim.",
+        "isa_fit": "ARMADILHA: o 'nicho' do nulo (endereço 0) só é inválido em modo usuário; no núcleo (endereçamento físico) o endereço 0 é RAM válida.",
+        "complexity": "low",
+        "performance": "Option<&T> em uma palavra exige nicho.",
+        "decision": "adopt",
+        "rationale": "Referências nunca nulas; ausência só por Option. A otimização de nicho fica por modo: em usuário usa 0; em núcleo usa um valor fora da RAM física, ou não otimiza. Fixar isso na especificação antes de implementar."
+      },
+      {
+        "name": "Generic Programming and Monomorphization",
+        "implemented": {"status": "no", "evidence": "docs/11 §E: 'não há monomorfização nem despacho'."},
+        "planned": "—",
+        "feasible": "Sim.",
+        "isa_fit": "n/a",
+        "complexity": "high",
+        "performance": "Código rápido; cresce o texto (o núcleo já cresceu 15% com a Fase 9; páginas de 729 palavras).",
+        "decision": "postpone",
+        "rationale": "Depois de registros, enums e auto-hospedagem (o compilador em T27R não precisa de genéricos). Só monomorfização; sem genéricos apagados."
+      },
+      {
+        "name": "Explicit Contracts and Structural Interfaces",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "Sim.",
+        "isa_fit": "n/a",
+        "complexity": "medium",
+        "performance": "Estático.",
+        "decision": "postpone",
+        "rationale": "Quando vierem genéricos: contratos explícitos e nominais (traits), conferidos na definição. Recusar tipagem estrutural implícita (erros longe da causa, e coerência mais difícil)."
+      },
+      {
+        "name": "Dynamic Dispatch",
+        "implemented": {"status": "no", "evidence": "O TIR não tem chamada indireta (Op::Call é por função conhecida)."},
+        "planned": "—",
+        "feasible": "Sim: a ISA tem jalr.",
+        "isa_fit": "Boa.",
+        "complexity": "medium",
+        "performance": "Uma carga + jalr.",
+        "decision": "postpone",
+        "rationale": "Primeiro ponteiros de função (6.4) com uma op de chamada indireta no TIR; vtables depois, como registro de ponteiros de função gerado a partir de traits."
+      },
+      {
+        "name": "Multiple Dispatch",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "Estático: sim (sobrecarga). Dinâmico: exige informação de tipo em execução.",
+        "isa_fit": "n/a",
+        "complexity": "high",
+        "performance": "Dinâmico: busca em tabela por chamada.",
+        "decision": "reject",
+        "rationale": "Nenhum caso de uso no sistema; complica resolução de nomes, mensagens de erro e o compilador auto-hospedado."
+      },
+      {
+        "name": "Abstract Type Hierarchies and Promotion",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "Sim.",
+        "isa_fit": "Ruim para promoção: há um único inteiro de máquina e nenhum ponto flutuante; promoção implícita esconderia o wrap balanceado.",
+        "complexity": "medium",
+        "performance": "—",
+        "decision": "reject",
+        "rationale": "Conversões só explícitas. Hierarquias abstratas não trazem nada que traits não tragam."
+      },
+      {
+        "name": "Operator and Indexing Overloading",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "Sim, via traits (estático).",
+        "isa_fit": "n/a",
+        "complexity": "medium",
+        "performance": "Estático: nenhum custo; metatabelas: custo por operação.",
+        "decision": "postpone",
+        "rationale": "Útil só para tipos numéricos de biblioteca (ponto fixo, inteiro grande). Vem com traits. Recusar metatabelas (despacho em execução)."
+      }
+    ],
+
+    "5_native_collections_and_numerical_computing": [
+      {
+        "name": "Native Slices and Dynamic Arrays",
+        "implemented": {"status": "partial", "evidence": "Só `static mut nome: [word; n]` com índice verificado (trap em execução; índice constante fora = erro de compilação; o validador do TIR recusa deslocamento constante fora do objeto)."},
+        "planned": "docs/15 §6: array como tipo da linguagem.",
+        "feasible": "Sim.",
+        "isa_fit": "Boa: slice = 2 palavras (ptr, comprimento).",
+        "complexity": "medium",
+        "performance": "Verificação de limite: 2 desvios por acesso não constante (redundante sem otimizador).",
+        "decision": "modify",
+        "rationale": "Arrays locais e slices (ptr, comprimento) na linguagem. Lista dinâmica (ptr, comprimento, capacidade) na biblioteca sobre arena, não na sintaxe, porque crescer exige um alocador e o sistema não tem heap."
+      },
+      {
+        "name": "Native Associative Maps",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "Sim, como biblioteca (hash de palavras de 27 trits).",
+        "isa_fit": "Indiferente.",
+        "complexity": "medium",
+        "performance": "—",
+        "decision": "reject",
+        "rationale": "Fora do núcleo da linguagem. Biblioteca, depois de genéricos."
+      },
+      {
+        "name": "Multidimensional Arrays and Tensors",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "Como vista (ptr, dimensões, passos) em biblioteca: sim.",
+        "isa_fit": "Fraca: sem ponto flutuante e sem vetores.",
+        "complexity": "high",
+        "performance": "Sem hardware que aproveite.",
+        "decision": "reject",
+        "rationale": "Recusar no núcleo. Uma vista 2D de biblioteca basta para o que o sistema precisa (tabelas)."
+      },
+      {
+        "name": "Loop Fusion and Broadcasting",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "Depende de tensores e de um otimizador, nenhum dos dois existe.",
+        "isa_fit": "Sem vetores, o ganho é só evitar temporários.",
+        "complexity": "high",
+        "performance": "—",
+        "decision": "reject",
+        "rationale": "Depende de 5.3, recusado."
+      },
+      {
+        "name": "Extended Numeric Types",
+        "implemented": {"status": "no", "evidence": "Só word. A ISA tem mul/mulh (produto completo de 54 trits), addc (carry ∈ {−1,0,+1}), div/rem centrados e shi com arredondamento ao mais próximo (docs/07 §4)."},
+        "planned": "—",
+        "feasible": "Ponto fixo e inteiro de precisão arbitrária: sim, e a ISA ajuda. Complexo e racional: sim, biblioteca. Ponto flutuante: não há na ISA (docs/07 §8).",
+        "isa_fit": "Ponto fixo em base 3^k é natural: reescalar é um shi exato com arredondamento ao mais próximo, sem viés (provado: div por 3^k ≡ descartar dígitos). Inteiro grande: addc/mulh são as peças.",
+        "complexity": "medium",
+        "performance": "Ponto fixo: mul + mulh + shi.",
+        "decision": "modify",
+        "rationale": "Adotar ponto fixo de escala 3^k e inteiro grande como biblioteca, com intrínsecas para mulh e addc (hoje não expostas). Complexo/racional: biblioteca, adiado. Recusar ponto flutuante na linguagem até a ISA defini-lo."
+      }
+    ],
+
+    "6_functions_control_flow_and_errors": [
+      {
+        "name": "Multiple Return Values",
+        "implemented": {"status": "partial", "evidence": "O formato TIR codifica uma lista de resultados na assinatura, mas o validador limita a ≤ 1 (ir.rs: 'h[1] > 1'); a ABI devolve em a1. Regiões do TIR já produzem vários valores (yield)."},
+        "planned": "—",
+        "feasible": "Sim: a1..a9 são voláteis e já carregam mensagens IPC de até 7 palavras.",
+        "isa_fit": "Boa.",
+        "complexity": "low",
+        "performance": "Sem memória: resultados em registradores.",
+        "decision": "adopt",
+        "rationale": "Até 9 resultados em a1..a9 (tuplas e registros pequenos). É também a base para Result sem memória e para 3.4. Mudança pequena no validador, no gerador e em docs/14 §2."
+      },
+      {
+        "name": "Explicit Error Handling",
+        "implemented": {"status": "partial", "evidence": "Não há exceções nem desempilhamento. O sistema já usa estados −1/0/+1 (call/recv). Falhas fatais = trap (brk, causa −6) e o núcleo trata a tarefa."},
+        "planned": "docs/11 §F.2: Result ternário.",
+        "feasible": "Sim, depende de enum (4.2) e de múltiplos retornos (6.1).",
+        "isa_fit": "Alta: o sinal do estado é o discriminante.",
+        "complexity": "low",
+        "performance": "Um desvio por propagação.",
+        "decision": "adopt",
+        "rationale": "Result/Option como valores, com operador `?`. Recusar exceções com desempilhamento (sem tabelas de desempilhamento, e o núcleo não pode depender delas). Pânico = trap, como hoje."
+      },
+      {
+        "name": "Deferred Execution",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "Sim e barato: o TIR é estruturado, as saídas de escopo são explícitas (Return, fim de região); não há desempilhamento, então `defer` roda nas saídas normais. Não roda em exit nem em trap.",
+        "isa_fit": "n/a",
+        "complexity": "low",
+        "performance": "Código duplicado em cada saída (ou um bloco de saída comum).",
+        "decision": "adopt",
+        "rationale": "Escolhido em vez de destrutores implícitos (2.2). Uso imediato no núcleo: salvar e restaurar STATUS/IMASK ao redor de uma seção."
+      },
+      {
+        "name": "First-Class Functions and Closures",
+        "implemented": {"status": "no", "evidence": "Não há chamada indireta no TIR."},
+        "planned": "—",
+        "feasible": "Ponteiros de função: sim (jalr). Fechos que escapam: exigem alocação. Fechos que não escapam: alocação no quadro do chamador.",
+        "isa_fit": "Boa.",
+        "complexity": "medium",
+        "performance": "Uma indireção.",
+        "decision": "modify",
+        "rationale": "Adotar ponteiros de função (op de chamada indireta no TIR, validada por assinatura). Fechos só de segunda classe (não escapam; captura por referência no quadro), coerente com 2.3 e 2.7. Recusar fechos que escapam: obrigariam alocação implícita."
+      },
+      {
+        "name": "Tail Call Optimization",
+        "implemented": {"status": "no", "evidence": "Toda chamada empilha quadro (push lr; push s11; ...)."},
+        "planned": "—",
+        "feasible": "Sim, quando os argumentos cabem em a1..a9 e nada do quadro é passado por referência.",
+        "isa_fit": "Boa: epílogo + j.",
+        "complexity": "low",
+        "performance": "Recursão em espaço constante — relevante com pilha de 729 palavras.",
+        "decision": "modify",
+        "rationale": "Garantia só quando pedida: marcador explícito (`return tail f(x)` ou equivalente) que vira erro de compilação se a chamada não puder reaproveitar o quadro. Otimização implícita fica com o otimizador futuro, sem garantia."
+      },
+      {
+        "name": "Compile-Time Execution",
+        "implemented": {"status": "no", "evidence": "Nem dobra de constantes: lower só registra literais (consts)."},
+        "planned": "Interpretador de referência do TIR: listado como não feito (docs/14 §9).",
+        "feasible": "Sim: o mesmo interpretador do TIR serve de semântica de referência (oráculo de teste) e de avaliador em compilação.",
+        "isa_fit": "Tem de reproduzir a aritmética da máquina (wrap balanceado, divisão centrada) — já existe em word.rs.",
+        "complexity": "medium",
+        "performance": "Custo de compilação limitado por um teto de passos.",
+        "decision": "adopt",
+        "rationale": "`const fn` avaliada pelo interpretador do TIR, determinística, com teto de passos, só sem efeitos (intrínsecas recusadas), gerando tabelas em .data. Dupla função: fecha a lacuna do oráculo de referência."
+      }
+    ],
+
+    "7_concurrency_and_parallelism": [
+      {
+        "name": "Asymmetric Cooperative Coroutines",
+        "implemented": {"status": "no", "evidence": "Concorrência existe só como tarefas do núcleo."},
+        "planned": "—",
+        "feasible": "Sem pilha (máquina de estados): transformação pesada sobre regiões aninhadas. Com pilha própria: troca de registradores em uma rotina .tas pequena, pilha numa arena do programador.",
+        "isa_fit": "Boa (trocar sp, lr e s1..s11).",
+        "complexity": "medium",
+        "performance": "Troca ~ 26 st/ld.",
+        "decision": "postpone",
+        "rationale": "Depois de extern fn e arenas: corrotinas com pilha própria em memória do programador, sem escalonador global e sem colorir funções. Sem async/await."
+      },
+      {
+        "name": "Managed Fibers and Lightweight Threads",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "Sim tecnicamente.",
+        "isa_fit": "Uma CPU: M:N não dá paralelismo.",
+        "complexity": "high",
+        "performance": "Runtime e escalonador dentro de cada tarefa.",
+        "decision": "reject",
+        "rationale": "O escalonador é o núcleo. Um segundo escalonador em espaço de usuário duplica política e esconde o tempo de máquina, que o sistema conta exato."
+      },
+      {
+        "name": "Typed Channels and Multiplexing",
+        "implemented": {"status": "partial", "evidence": "Canais = capacidades de IPC do núcleo (send/recv/call/reply), mensagem de até 7 palavras em registradores; na linguagem, call/recv/recv_val sem tipo. Não existe espera em vários canais (recv recebe uma capacidade)."},
+        "planned": "docs/11 §G.5: Cap<Send>/Cap<Recv>.",
+        "feasible": "Tipos sobre capacidades: sim, só front end. select: exige mudança no núcleo (espera múltipla ou objeto de notificação).",
+        "isa_fit": "Boa.",
+        "complexity": "medium",
+        "performance": "Mensagem em registradores, sem cópia de memória.",
+        "decision": "modify",
+        "rationale": "Adotar Cap<Proto> lineares com tipo de mensagem ≤ 7 palavras conferido na compilação. select: adiado; é decisão do núcleo (docs/08), não da linguagem."
+      },
+      {
+        "name": "Parallelism Without Shared Memory",
+        "implemented": {"status": "yes", "evidence": "É o modelo do sistema: tarefas em espaços de endereçamento isolados, comunicação por cópia de mensagem (docs/08). Não há memória compartilhada nem chamada de mapeamento. Não há paralelismo físico: uma CPU."},
+        "planned": "—",
+        "feasible": "Transferência de blocos maiores que 7 palavras: exige chamada nova no núcleo.",
+        "isa_fit": "Boa.",
+        "complexity": "low",
+        "performance": "—",
+        "decision": "keep",
+        "rationale": "Manter. Blocos grandes: projetar como transferência de páginas (mover quadro entre espaços) quando houver necessidade medida — decisão de núcleo."
+      },
+      {
+        "name": "Static Concurrency Safety",
+        "implemented": {"status": "yes", "evidence": "Por construção: sem memória compartilhada entre tarefas e uma thread por tarefa; núcleo não preemptível. Não há corrida de dados possível no modelo atual."},
+        "planned": "—",
+        "feasible": "Send/Sync: sim, mas nada a proteger.",
+        "isa_fit": "—",
+        "complexity": "high",
+        "performance": "—",
+        "decision": "postpone",
+        "rationale": "Não adicionar maquinário de tipos sem memória compartilhada. Se ela vier (decisão de núcleo e de ISA), Send/Sync entram junto."
+      },
+      {
+        "name": "System-Level and Atomic Primitives",
+        "implemented": {"status": "partial", "evidence": "csrx exposta como csr_swap (única atômica da ISA); tarefas do SO via SYS_TASK. Não há barreiras nem atômicas de memória na ISA (docs/16 §4)."},
+        "planned": "—",
+        "feasible": "Atômicas de memória/barreiras: não, sem inventar hardware.",
+        "isa_fit": "—",
+        "complexity": "low",
+        "performance": "—",
+        "decision": "keep",
+        "rationale": "Manter. fence e atômicas de memória entram só junto com um modelo de memória concorrente definido na ISA (docs/07 §8, marcado [A])."
+      }
+    ],
+
+    "8_metaprogramming_reflection_and_syntax": [
+      {
+        "name": "AST-Based Macros",
+        "implemented": {"status": "no", "evidence": "Só macros textuais do montador (.macro/.endm)."},
+        "planned": "—",
+        "feasible": "Sim.",
+        "isa_fit": "n/a",
+        "complexity": "high",
+        "performance": "Compilação mais lenta; o compilador auto-hospedado precisaria de um interpretador de macros.",
+        "decision": "reject",
+        "rationale": "Agora não: higiene e expansão pesam no compilador auto-hospedado e na leitura do código. const fn (6.6) + genéricos (4.5) cobrem o uso real. Reavaliar depois da auto-hospedagem."
+      },
+      {
+        "name": "Type-Driven Code Generation",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "Sim.",
+        "isa_fit": "n/a",
+        "complexity": "high",
+        "performance": "—",
+        "decision": "reject",
+        "rationale": "Coberto por monomorfização + const fn. Um terceiro mecanismo não se paga."
+      },
+      {
+        "name": "Reflection",
+        "implemented": {"status": "no", "evidence": "—"},
+        "planned": "—",
+        "feasible": "Em compilação: sim. RTTI: sim, ao custo de memória.",
+        "isa_fit": "n/a",
+        "complexity": "medium",
+        "performance": "RTTI ocupa .data em cada programa.",
+        "decision": "postpone",
+        "rationale": "Introspecção em compilação (campos de um registro, para serialização) via const fn, depois de registros. Recusar RTTI."
+      },
+      {
+        "name": "Minimal and Orthogonal Syntax",
+        "implemented": {"status": "yes", "evidence": "12 palavras-chave (fn let mut if else while return match true false word static); descida recursiva (parse.rs, 512 linhas)."},
+        "planned": "—",
+        "feasible": "—",
+        "isa_fit": "n/a",
+        "complexity": "low",
+        "performance": "—",
+        "decision": "keep",
+        "rationale": "Regra: gramática LL(1) e orçamento de palavras-chave; cada recurso novo diz quantas acrescenta. O parser precisa caber no compilador auto-hospedado."
+      },
+      {
+        "name": "Integrated Ecosystem",
+        "implemented": {"status": "partial", "evidence": "Módulos: não (um arquivo = um programa; o núcleo usa .include). Testes e benchmarks: no hospedeiro (cargo test, 100 testes; tir_bench), não na linguagem. REPL: não. Recarga: o SO reinicia serviços com geração nova (Fase 6), que é recarga no nível de tarefa."},
+        "planned": "docs/11 §E: módulos quando a granularidade doer.",
+        "feasible": "Módulos e funções de teste: sim. REPL na máquina: caro. Troca de código em execução dentro de uma tarefa: conflita com imagem estática.",
+        "isa_fit": "n/a",
+        "complexity": "medium",
+        "performance": "—",
+        "decision": "modify",
+        "rationale": "Adotar módulos (arquivo = módulo, `pub` explícito, sem ciclos) e funções `test` executadas pelo harness do hospedeiro sob o núcleo real com I1–I12. Recusar REPL e troca de código em execução; a recarga continua sendo reinício de tarefa pelo supervisor."
+      }
+    ]
+  },
+
+  "dependencies_and_conflicts": [
+    {"conflict": "GC / análise de escape que promove para heap × alocação zero implícita × passos determinísticos", "resolution": "GC e promoção recusados; arenas explícitas."},
+    {"conflict": "Destrutores implícitos (RAII) × liberação em bloco por arena", "resolution": "Sem destrutores; `defer` explícito; posse linear só para recursos (capacidades)."},
+    {"conflict": "Verificador de empréstimo completo × compilador pequeno e auto-hospedável", "resolution": "Referências de segunda classe + índices de arena."},
+    {"conflict": "Fechos que escapam × alocação zero implícita", "resolution": "Só fechos que não escapam."},
+    {"conflict": "Asm embutido × validação do TIR (proveniência, efeitos) e alocação de registradores futura", "resolution": "extern fn + intrínsecas."},
+    {"conflict": "Variantes de tamanho variável × indexação O(1) e referências estáveis", "resolution": "Só em contêiner sequencial de biblioteca."},
+    {"conflict": "Nicho de nulo × endereço 0 válido no modo núcleo", "resolution": "Nicho dependente do modo, fixado na especificação."},
+    {"conflict": "Despacho múltiplo / sobrecarga ampla × sintaxe mínima e uma passada", "resolution": "Despacho múltiplo recusado; sobrecarga só por traits."},
+    {"dependency": "Auto-hospedagem", "needs": ["arrays e registros", "strings como [word]", "arena", "enums", "módulos", "E/S pela imagem/console (sem dispositivo novo)", "medir memória por tarefa e passos no emulador"]},
+    {"dependency": "Ponteiros de função, vtables, fechos", "needs": ["op de chamada indireta no TIR, validada por assinatura"]},
+    {"dependency": "Result e registros pequenos sem memória", "needs": ["múltiplos retornos em a1..a9 (validador hoje limita a 1)"]},
+    {"dependency": "select, transferência de blocos, memória crescente", "needs": ["mudanças no núcleo (docs/08), não na linguagem"]},
+    {"dependency": "Atômicas de memória e barreiras", "needs": ["modelo de memória concorrente na ISA (docs/07 §8)"]},
+    {"dependency": "Migrar caminhos quentes do núcleo para T27R", "needs": ["alocação de registradores (sem ela, ~5× mais lento — docs/14 §0)"]}
+  ],
+
+  "minimal_viable_core": {
+    "description": "O menor conjunto que permite escrever drivers, serviços e o próprio compilador sem heap, sem runtime e com ABI estável.",
+    "types": ["word", "trit", "arrays [T; n]", "registros de campos word/trit (layout docs/15)", "enum com payload", "slice (ptr, comprimento)", "&/&mut de segunda classe", "Cap<Proto> linear", "ponteiro de função"],
+    "control": ["if", "while", "match exaustivo (3 braços sobre trit)", "return com até 9 valores", "`?` sobre Result", "defer", "chamada de cauda explícita"],
+    "memory": ["quadro (slot)", "static", "arena de biblioteca", "unsafe para phys_* e ponteiro cru"],
+    "system": ["intrínsecas de docs/16", "extern fn", "sys cru", "modo núcleo/usuário"],
+    "compile_time": ["const fn pelo interpretador do TIR"],
+    "explicitly_out": ["GC", "exceções", "herança", "despacho múltiplo", "macros de AST", "RTTI", "fibras M:N", "tensores", "ponto flutuante", "bibliotecas compartilhadas", "asm embutido"]
+  },
+
+  "staged_roadmap": [
+    {
+      "stage": 0,
+      "name": "existe (cdcd789)",
+      "content": "word; fn/let/mut/if/while/match; static mut com índice verificado; intrínsecas por modo; TIR v2 validado; ABI de docs/14; código de núcleo em T27R (irq.t27r).",
+      "exit_criterion": "verificar-tudo.sh verde (100/0, 0 divergências, Lean ok)."
+    },
+    {
+      "stage": 1,
+      "name": "semântica e ABI fechadas",
+      "content": "Interpretador de referência do TIR (oráculo nos testes diferenciais + base de const fn); trit e Kleene; múltiplos retornos em a1..a9; extern fn; defer; chamada de cauda explícita; regra de nicho por modo e de resultado composto escritas em docs/14–15 antes do código.",
+      "exit_criterion": "fuzzer compara interpretador × execução real com 0 divergências; ABI nova conferida por teste de máquina nua."
+    },
+    {
+      "stage": 2,
+      "name": "dados",
+      "content": "Arrays locais, registros, enums + Result/Option, slices, strings como [word], &/&mut de segunda classe, Cap<Proto>, módulos, ponteiros de função (op indireta no TIR), unsafe, arena na biblioteca.",
+      "exit_criterion": "um serviço do sistema (ex.: o driver de console, hoje assembly) reescrito em T27R com a suíte do núcleo verde e custo medido contra o original."
+    },
+    {
+      "stage": 3,
+      "name": "desempenho e auto-hospedagem",
+      "content": "Alocação de registradores e remoção de verificação de limite redundante (TIR→TIR, medidos em tir_bench); compilador T27R escrito em T27R; E/S pela imagem e console.",
+      "exit_criterion": "estágio 1 == estágio 2 byte a byte no formato TIR canônico; medidas de memória e passos publicadas em docs, inclusive se negativas."
+    },
+    {
+      "stage": 4,
+      "name": "abstração",
+      "content": "Genéricos monomorfizados, traits nominais, sobrecarga de operadores por trait, vtables, ponto fixo 3^k e inteiro grande (intrínsecas mulh/addc), corrotinas com pilha própria, introspecção em compilação.",
+      "exit_criterion": "cada recurso entra com medida de tempo de compilação e de tamanho de texto do núcleo."
+    }
+  ],
+
+  "llvm_position": {
+    "decision": "reject as dependency; borrow ideas only",
+    "rationale": [
+      "A LLVM supõe memória endereçada por byte (DataLayout em bits, i8 endereçável) e inteiros de complemento de dois; o wrap balanceado de 27 trits não é o wrap de nenhum iN, e a divisão centrada não é sdiv. Um backend T27 teria de contrariar a semântica da própria IR.",
+      "O projeto proíbe dependências externas (regra do usuário).",
+      "O TIR é a autoridade semântica (docs/13); o que se aproveita da LLVM são ideias: SSA, passes como funções IR→IR, verificador obrigatório, metadados de alias (noalias) — e só depois de terem sentido no TIR."
+    ]
+  },
+
+  "not_verified_by_this_assessment": [
+    "Nenhum item novo foi implementado nesta avaliação; os custos de complexidade são estimativas, não medições.",
+    "Memória disponível por tarefa e custo em passos de rodar um compilador no emulador: não medidos (decidem a etapa 3).",
+    "Densidade de texto com uma palavra por caractere × empacotamento em trytes: não medida (docs/07 §2 marca [A]).",
+    "Benefício de layout (SoA, localidade): não mensurável no emulador atual, que não modela cache."
+  ]
+}

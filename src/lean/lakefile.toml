@@ -1,0 +1,10 @@
+name = "TeneruraProofs"
+version = "0.1.0"
+defaultTargets = ["TeneruraProofs", "teneruraproofs"]  # a biblioteca (TODAS as provas) entra no build padrão
+
+[[lean_lib]]
+name = "TeneruraProofs"
+
+[[lean_exe]]
+name = "teneruraproofs"
+root = "Main"

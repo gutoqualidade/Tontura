@@ -1,0 +1,12 @@
+# TENERURA Fase 5 — verificação cruzada da ISA: emulador Rust × referência Haskell independente
+# comando: tools/isa-crosscheck.sh 30000 [semente]   (3 sementes; 0 divergências em 90 000 casos)
+# as duas últimas linhas são o CONTROLE NEGATIVO: um valor esperado adulterado tem de ser acusado
+casos gerados: 30000 (semente padrão)
+casos: 30000  iguais: 23504  só classificados (privilegiadas/sys/brk): 6496  divergentes: 0
+casos gerados: 30000 (semente 271828)
+casos: 30000  iguais: 23367  só classificados (privilegiadas/sys/brk): 6633  divergentes: 0
+casos gerados: 30000 (semente 31415926)
+casos: 30000  iguais: 23466  só classificados (privilegiadas/sys/brk): 6534  divergentes: 0
+DIVERGÊNCIA no caso 7: Jal: Haskell pc=-549 mem=1805591545963 regs≠[(-11,-548)] ≠ Rust pc=-549 mem=1805591545964 regs≠[(-11,-548)]
+casos: 30000  iguais: 23465  só classificados (privilegiadas/sys/brk): 6534  divergentes: 1
+controle negativo: código de saída do verificador = 1 (≠ 0 = divergência acusada)

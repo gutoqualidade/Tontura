@@ -1,0 +1,8 @@
+warning: Nix search path entry '/nix/var/nix/profiles/per-user/root/channels' does not exist, ignoring
++++ OK, passed 1 test.
+TODAS AS PROPRIEDADES PASSARAM
+Test suite tenerura-test: PASS
+Test suite logged to:
+/home/guto/tenerura/src/haskell/./dist-newstyle/build/x86_64-linux/ghc-9.10.3/tenerura-0.1.0.0/t/tenerura-test/test/tenerura-0.1.0.0-tenerura-test.log
+1 of 1 test suites (1 of 1 test cases) passed.
+exit=0

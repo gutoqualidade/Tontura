@@ -18,6 +18,13 @@ use std::process::ExitCode;
 use tenerura_t27::lang;
 
 fn main() -> ExitCode {
+    // O front end e os passes recursam até parse::MAX_NEST/MAX_EXPR níveis;
+    // sem otimização o pior caso aceito pede 4–8 MB, o tamanho da thread
+    // principal. Pilha própria (reservada, não comprometida) dá folga.
+    std::thread::Builder::new().stack_size(64 << 20).spawn(run).expect("thread do compilador").join().unwrap_or(ExitCode::from(101))
+}
+
+fn run() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut input: Option<String> = None;
     let mut output: Option<String> = None;
