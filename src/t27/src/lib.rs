@@ -12,6 +12,7 @@ pub mod asm;
 pub mod harness;
 pub mod isa;
 pub mod kcheck;
+pub mod lang;
 pub mod machine;
 pub mod manifest;
 pub mod sysimage;

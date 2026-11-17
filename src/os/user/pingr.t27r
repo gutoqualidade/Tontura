@@ -1,0 +1,36 @@
+// ping em T27R: fala com o servidor `pong.tas` (assembly) pelo protocolo
+// (op=1, valor=i) -> i+1, confere cada resposta, soma e imprime.
+// A etiqueta é escrita com putc porque ainda não há strings na linguagem.
+
+fn etiqueta() -> word {
+    putc(112); // p
+    putc(105); // i
+    putc(110); // n
+    putc(103); // g
+    putc(58);  // :
+    putc(32);  // espaço
+    putc(115); // s
+    putc(111); // o
+    putc(109); // m
+    putc(97);  // a
+    putc(61);  // =
+    return 0;
+}
+
+fn main() -> word {
+    let mut i = 1;
+    let mut soma = 0;
+    while i <= 10 {
+        let r = call(0, 1, i);
+        if r != i + 1 {
+            exit(1);
+        }
+        soma = soma + r;
+        i = i + 1;
+    }
+    etiqueta();
+    putdec(soma);
+    putc(10);
+    call(0, 0, 0); // op 0: encerra o servidor
+    return 0;
+}

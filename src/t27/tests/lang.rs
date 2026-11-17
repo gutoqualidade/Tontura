@@ -1,0 +1,295 @@
+//! TENERURA — testes da linguagem de sistemas (subconjunto de Rust → T27).
+//!
+//! Cada teste compila fonte `.t27r` com `lang::compile`, monta o resultado
+//! com o montador real e executa sob o núcleo real, com os invariantes
+//! conferidos a cada saída do núcleo. O que se prova aqui é o caminho
+//! inteiro: fonte → assembly → imagem → máquina → console/código de saída.
+
+mod common;
+use common::*;
+
+use tenerura_t27::lang;
+
+/// Compila e monta; devolve o programa de usuário.
+fn build(src: &str) -> Result<tenerura_t27::asm::Program, String> {
+    let tas = lang::compile(src).map_err(|d| format!("{d}"))?;
+    tenerura_t27::asm::assemble_str(&tas, "gerado", Some(&os_dir().join("user")))
+        .map_err(|e| format!("montagem: {e}\n--- .tas ---\n{tas}"))
+}
+
+/// Roda um programa sozinho, com console, e devolve (saída, código).
+fn run_with(src: &str, caps: impl FnOnce(tenerura_t27::sysimage::TaskSpec) -> tenerura_t27::sysimage::TaskSpec) -> (String, i64) {
+    let prog = build(src).unwrap_or_else(|e| panic!("{e}"));
+    let mut s = boot_k(&kernel(), vec![caps(task("p", prog)).con()], 0, None).unwrap();
+    let dead = s.k("ST_DEAD");
+    run_checked(&mut s, 400_000, 64, |s| s.task("p").state == dead)
+        .unwrap_or_else(|e| panic!("{e}"));
+    (s.m.console_text(), s.task("p").exit)
+}
+
+fn run(src: &str) -> (String, i64) {
+    run_with(src, |t| t)
+}
+
+/// Código de saída de um programa que só calcula.
+fn exit_of(src: &str) -> i64 {
+    run(src).1
+}
+
+/// Mensagem de erro de compilação (sem o prefixo de posição).
+fn err_of(src: &str) -> String {
+    match lang::compile(src) {
+        Ok(_) => panic!("esperava erro de compilação, mas compilou"),
+        Err(d) => d.msg,
+    }
+}
+
+#[test]
+fn laco_soma_e_imprime() {
+    let (out, code) = run(
+        "fn main() -> word {
+            let mut i = 0;
+            let mut s = 0;
+            while i < 10 {
+                i = i + 1;
+                s = s + i;
+            }
+            putdec(s);
+            putc(10);
+            return s;
+        }",
+    );
+    assert_eq!(code, 55);
+    assert_eq!(out, "55\n");
+}
+
+#[test]
+fn recursao_e_match_de_tres_vias() {
+    let code = exit_of(
+        "fn fato(n: word) -> word {
+            if n <= 1 { return 1; }
+            return n * fato(n - 1);
+        }
+        fn sinal(x: word) -> word {
+            match sign(x) {
+                -1 => { return 100; }
+                0 => { return 200; }
+                _ => { return 300; }
+            }
+        }
+        fn main() -> word {
+            return fato(5) + sinal(0 - 7) + sinal(0) + sinal(9);
+        }",
+    );
+    assert_eq!(code, 720, "120 + 100 + 200 + 300");
+}
+
+#[test]
+fn precedencia_comparacoes_e_logica() {
+    // cada parcela vale 1 se a expressão estiver certa
+    let code = exit_of(
+        "fn main() -> word {
+            let mut r = 0;
+            if (2 + 3) * 4 == 20 { r = r + 1; }
+            if 10 / 3 == 3 { r = r + 1; }
+            if 10 % 3 == 1 { r = r + 1; }
+            if 2 - 3 - 4 == 0 - 5 { r = r + 1; }
+            if (1 < 2) && (2 <= 2) && !(3 > 4) { r = r + 1; }
+            if (0 || 7) && !0 { r = r + 1; }
+            return r;
+        }",
+    );
+    assert_eq!(code, 6);
+}
+
+#[test]
+fn literais_maiores_que_16_trits() {
+    // 10^9 não cabe em imediato de 16 trits: força o caminho `la`
+    let code = exit_of(
+        "fn main() -> word {
+            let x = 1000000000;
+            return x / 1000000;
+        }",
+    );
+    assert_eq!(code, 1000);
+}
+
+#[test]
+fn parametros_e_chamadas_com_varios_argumentos() {
+    let code = exit_of(
+        "fn soma5(a: word, b: word, c: word, d: word, e: word) -> word {
+            return a + b + c + d + e;
+        }
+        fn main() -> word {
+            return soma5(1, 2, 3, 4, 5);
+        }",
+    );
+    assert_eq!(code, 15);
+}
+
+#[test]
+fn chamada_de_sistema_pelo_programa() {
+    // recv sem remetente e sem paciência devolve 0 ("nada aconteceu")
+    let (_, code) = run_with(
+        "fn main() -> word {
+            let r = recv(0, 0);
+            return r + 10;
+        }",
+        |t| t.recv(0, 1),
+    );
+    assert_eq!(code, 10);
+}
+
+#[test]
+fn ping_em_t27r_fala_com_o_servidor_em_assembly() {
+    // o exemplo do repositório: cliente escrito na linguagem, servidor em
+    // assembly, protocolo (op=1, valor=i) -> i+1, n=10, soma = 65.
+    let src = std::fs::read_to_string(os_dir().join("user/pingr.t27r")).expect("pingr.t27r");
+    let prog = build(&src).unwrap_or_else(|e| panic!("{e}"));
+    let mut s = boot_k(
+        &kernel(),
+        vec![task("ping", prog).send(0, 1, 7).con(), task("pong", user("pong")).recv(0, 1)],
+        0,
+        None,
+    )
+    .unwrap();
+    let dead = s.k("ST_DEAD");
+    run_checked(&mut s, 400_000, 64, |s| s.task("ping").state == dead && s.task("pong").state == dead)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(s.m.console_text(), "ping: soma=65\n");
+    assert_eq!(s.task("ping").exit, 0);
+    assert_eq!(s.task("pong").exit, 0);
+}
+
+#[test]
+fn servidor_em_t27r_recebe_de_cliente_em_assembly() {
+    // um cliente em assembly entrega duas palavras (41 e 0) por SEND; o
+    // servidor escrito em T27R soma as não nulas e encerra no 0.
+    let src = "fn main() -> word {
+        let mut soma = 0;
+        while true {
+            let v = recv_val(0, -1);
+            if v == 0 {
+                exit(soma);
+            }
+            soma = soma + v;
+        }
+        return soma;
+    }";
+    let servidor = build(src).unwrap_or_else(|e| panic!("{e}"));
+    let cliente = prog(
+        "    li a1, SYS_SEND
+    li a2, 0
+    li a3, 41
+    li t1, FOREVER
+    sys
+    bnp a1, fail
+    li a1, SYS_SEND
+    li a2, 0
+    li a3, 0
+    li t1, FOREVER
+    sys
+    bnp a1, fail
+    li a2, 0
+    j exit
+fail:
+    li a2, 1
+    j exit",
+    );
+    let mut s = boot_k(
+        &kernel(),
+        vec![task("srv", servidor).recv(0, 1), task("cli", cliente).send(0, 1, 0)],
+        0,
+        None,
+    )
+    .unwrap();
+    let dead = s.k("ST_DEAD");
+    run_checked(&mut s, 400_000, 64, |s| s.task("srv").state == dead && s.task("cli").state == dead)
+        .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(s.task("srv").exit, 41);
+    assert_eq!(s.task("cli").exit, 0);
+}
+
+#[test]
+fn atribuicao_a_imutavel_e_recusada() {
+    let e = err_of(
+        "fn main() -> word {
+            let x = 1;
+            x = 2;
+            return x;
+        }",
+    );
+    assert!(e.contains("não é mutável"), "{e}");
+}
+
+#[test]
+fn nome_inexistente_e_recusado() {
+    let e = err_of("fn main() -> word { return y; }");
+    assert!(e.contains("'y' não existe"), "{e}");
+}
+
+#[test]
+fn aridade_errada_e_recusada() {
+    let e = err_of(
+        "fn f(a: word) -> word { return a; }
+        fn main() -> word { return f(1, 2); }",
+    );
+    assert!(e.contains("espera 1 argumento"), "{e}");
+}
+
+#[test]
+fn match_sem_curinga_e_recusado() {
+    let e = err_of(
+        "fn main() -> word {
+            match 1 { 1 => { return 1; } }
+            return 0;
+        }",
+    );
+    assert!(e.contains("match sem '_'"), "{e}");
+}
+
+#[test]
+fn exit_como_valor_e_recusado() {
+    let e = err_of("fn main() -> word { let x = exit(0); return x; }");
+    assert!(e.contains("exit não retorna"), "{e}");
+}
+
+#[test]
+fn padrao_repetido_no_match_e_recusado() {
+    let e = err_of(
+        "fn main() -> word {
+            match 1 { 1 => { return 1; } 1 | 2 => { return 2; } _ => { return 0; } }
+            return 0;
+        }",
+    );
+    assert!(e.contains("repetido"), "{e}");
+}
+
+#[test]
+fn falta_main_e_recusada() {
+    let e = err_of("fn f() -> word { return 1; }");
+    assert!(e.contains("falta 'fn main"), "{e}");
+}
+
+#[test]
+fn o_programa_gerado_nao_quebra_invariante_do_nucleo() {
+    // `run_checked` já confere I1..I12 a cada saída do núcleo; aqui só se
+    // garante que um programa com laço, chamadas e pilha não viola nada.
+    let (out, code) = run(
+        "fn fib(n: word) -> word {
+            if n < 2 { return n; }
+            return fib(n - 1) + fib(n - 2);
+        }
+        fn main() -> word {
+            let mut i = 0;
+            while i < 10 {
+                putdec(fib(i));
+                putc(32);
+                i = i + 1;
+            }
+            return fib(10);
+        }",
+    );
+    assert_eq!(out, "0 1 1 2 3 5 8 13 21 34 ");
+    assert_eq!(code, 55);
+}
