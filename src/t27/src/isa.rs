@@ -238,7 +238,49 @@ pub fn encode(ins: &Instr) -> Result<Word, IsaError> {
 }
 
 /// Decodifica uma palavra. Erro ⇒ a máquina levanta "instrução ilegal".
+///
+/// Caminho quente do emulador (medido: results/phase5/bench.txt): os campos
+/// saem por divisões sucessivas por CONSTANTES (o compilador troca por
+/// multiplicação) em vez de `Word::field` com posição variável. A versão
+/// direta, campo a campo, é `decode_ref`; os testes exigem que coincidam.
 pub fn decode(w: Word) -> Result<Instr, IsaError> {
+    const P13: i64 = POW3[13];
+    const H13: i64 = half(13);
+    // dígitos de u na base 3 = dígitos balanceados + 1
+    let u = w.val() + crate::word::M27;
+    let imm13 = u % P13 - H13;
+    let u = u / P13;
+    let c = u % 27 - 13;
+    let u = u / 27;
+    let b = u % 27 - 13;
+    let u = u / 27;
+    let a = u % 27 - 13;
+    let op = Op::from_code(u / 27 - half(5)).ok_or(IsaError::UnknownOpcode)?;
+    // campos balanceados adjacentes compõem-se por soma ponderada, sem ajuste
+    let imm16 = c * P13 + imm13;
+    let ins = match op.fmt() {
+        Fmt::R => {
+            if imm13 != 0 {
+                return Err(IsaError::NonCanonical);
+            }
+            Instr::r(op, a as i8, b as i8, c as i8)
+        }
+        Fmt::I => Instr::i(op, a as i8, b as i8, imm16),
+        Fmt::J => Instr::j(op, a as i8, b * POW3[16] + imm16),
+        Fmt::N => {
+            if a != 0 || b != 0 || imm16 != 0 {
+                return Err(IsaError::NonCanonical);
+            }
+            Instr::n(op)
+        }
+    };
+    validate(&ins)?;
+    Ok(ins)
+}
+
+/// Decodificação de referência: cada campo extraído diretamente pela sua
+/// posição (docs/07-isa-t27.md §3). Lenta; serve de oráculo para `decode`.
+pub fn decode_ref(w: Word) -> Result<Instr, IsaError> {
     let op = Op::from_code(w.field(22, 5)).ok_or(IsaError::UnknownOpcode)?;
     let a = w.field(19, 3) as i8;
     let ins = match op.fmt() {
@@ -430,6 +472,37 @@ mod tests {
             assert_eq!(Op::from_mnemonic(op.mnemonic()), Some(op));
         }
         assert_eq!(Op::from_code(0), None);
+    }
+
+    #[test]
+    fn fast_decode_equals_reference_decode() {
+        // palavras cruas (quase todas ilegais), palavras com opcode válido e
+        // campos aleatórios, e fronteiras: as duas decodificações coincidem
+        let mut x = 0x5EED_2026_1116u64 ^ 0xDEC0DE;
+        let mut next = move || {
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+        };
+        let mut valid = 0;
+        for i in 0..400_000 {
+            let raw = Word::wrap128(next() as i128);
+            let w = if i % 2 == 0 {
+                raw
+            } else {
+                // força um opcode atribuído no campo de topo, resto aleatório
+                let op = Op::ALL[(next() % Op::ALL.len() as u64) as usize];
+                Word::lit(op.code() * POW3[22] + raw.field(0, 22))
+            };
+            let (f, r) = (decode(w), decode_ref(w));
+            assert_eq!(f, r, "palavra {w}");
+            valid += f.is_ok() as u32;
+        }
+        assert!(valid > 20_000, "poucas palavras válidas na amostra: {valid}");
+        for w in [Word::ZERO, Word::MAX, Word::MIN, Word::lit(1), Word::lit(-1)] {
+            assert_eq!(decode(w), decode_ref(w));
+        }
     }
 
     #[test]

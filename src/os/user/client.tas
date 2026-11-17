@@ -6,6 +6,11 @@
 ; Capacidades: 0 = envio ao serviço; 7 = envio ao servidor de console.
 ; ============================================================
     .include "../lib/abi.inc"
+    ; Folga, não ajuste fino: o prazo precisa cobrir o ciclo "servidor morre →
+    ; supervisor imprime o aviso pelo console (um call por caractere) →
+    ; reinício (≈8,6 mil passos)". A demonstração inteira, com 3 reinícios,
+    ; leva ≈305 mil passos; com 60 000 um ciclo com o console ocupado vencia
+    ; o prazo e o cliente repetia uma vez a mais (4 repetições em vez de 3).
     .equ PATIENCE, 500000
 
     .org USER_TEXT

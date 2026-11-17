@@ -89,8 +89,11 @@ pub struct Stats {
     /// das interrupções, quantas vieram de linhas de dispositivo (≠ timer)
     pub traps_irq_dev: u64,
     pub tlbi: u64,
+    /// instruções executadas por operação (índice = posição em `Op::ALL`)
+    pub ops: [u64; 32],
 }
 
+#[derive(Clone)]
 pub struct Machine {
     /// registradores: índice = número + 13; o índice 13 (zr) é sempre zero
     pub regs: [Word; 27],
@@ -335,7 +338,8 @@ impl Machine {
     /// diferença continua correta quando o contador dá a volta (desde que
     /// os prazos fiquem a menos de meia janela de distância).
     pub fn timer_delta(&self) -> i64 {
-        Word::wrap128(self.time as i128 - self.timecmp.val() as i128).val()
+        // caminho rápido: a diferença quase sempre já está na janela
+        Word::wrap(self.time - self.timecmp.val()).val()
     }
 
     /// Menor linha pendente ∧ habilitada; 0 se nenhuma.
@@ -500,6 +504,7 @@ impl Machine {
             return self.fault(cause::PRIVILEGE, w);
         }
         let (ra, rb, rc) = (self.reg(ins.a), self.reg(ins.b), self.reg(ins.c));
+        self.stats.ops[ins.op as usize] += 1;
         let next = Word::wrap(pc + 1);
         let mut new_pc = next;
         let mut result = Step::Exec;

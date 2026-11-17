@@ -17,8 +17,11 @@ pub fn os_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../os")
 }
 
+/// O núcleo de src/os — ou o de `T27_KERNEL`, para rodar a suíte contra um
+/// núcleo alterado (controle negativo manual).
 pub fn kernel() -> Program {
-    assemble_file(&os_dir().join("kernel/kernel.tas")).unwrap_or_else(|e| panic!("núcleo: {e}"))
+    let path = std::env::var("T27_KERNEL").map(PathBuf::from).unwrap_or_else(|_| os_dir().join("kernel/kernel.tas"));
+    assemble_file(&path).unwrap_or_else(|e| panic!("núcleo: {e}"))
 }
 
 /// Programa de usuário de src/os/user/<nome>.tas.
@@ -325,7 +328,7 @@ pub fn run_observed(
                 if let Some((n, restart)) = burst.take() {
                     if restart {
                         obs.max_burst_restart = obs.max_burst_restart.max(n);
-                    } else if s.m.time - (n as i64) < s.m.time {
+                    } else {
                         obs.max_burst = obs.max_burst.max(n);
                     }
                 }
@@ -810,6 +813,10 @@ pub fn sc_timeouts(k: &Program) -> Result<(), String> {
     ensure!(c.reg(-2) >= 8000 && c.reg(-2) < 8000 + 15000, "call esperou {} passos (prazo 8000)", c.reg(-2));
     ensure!((c.reg(-3), c.reg(-5)) == (0, 0), "recv/send com prazo devolveram ({}, {})", c.reg(-3), c.reg(-5));
     ensure!(c.reg(-7) == 0, "alguma tentativa sem espera devolveu ≠ 0");
+    // Limite de 80 000: medido 34 503 no núcleo real (≈15 mil passos das 100
+    // chamadas + 3–4 preempções de 5000, porque `spin` está sempre pronta) e
+    // ≈280 mil nos mutantes em que a tentativa cede o processador. O limite
+    // separa os dois regimes; não é uma meta de desempenho.
     ensure!(c.reg(-6) < 80_000, "100 tentativas sem espera levaram {} passos (cederam o processador?)", c.reg(-6));
     ensure!((c.exit, c.fcause) == (0, 0), "cliente não concluiu");
     let sv = s.task("servidor");
