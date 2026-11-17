@@ -34,13 +34,18 @@
                             ;   − mata, + reinicia, 0 consulta
                             ;   (→ a2 = estado, a3 = causa, a4 = código de saída, a5 = geração)
     .equ SYS_IRQ_ACK, 10    ; a2 = cap de interrupção: reabilita a linha
-    .equ NSYS,        11
+    .equ SYS_CAP_GRANT, 11  ; a2 = cap de tarefa (alvo), a3 = slot de origem
+                            ;   (nesta tarefa), a4 = slot de destino (no alvo):
+                            ;   TRANSFERE a capacidade; a origem fica livre.
+                            ;   Autoridade se move; nunca se copia nem se forja.
+    .equ NSYS,        12
 
     ; códigos de erro (a2 quando a1 = −1)
     .equ E_NOSYS,     1     ; chamada inexistente
     .equ E_BADCAP,    2     ; slot inválido ou capacidade do tipo errado
     .equ E_DEADPEER,  3     ; o servidor morreu (ou foi reiniciado) antes de responder
     .equ E_NOCALLER,  4     ; recibo de resposta inválido ou vencido
+    .equ E_NOSLOT,    5     ; o slot de destino da capacidade já está ocupado
 
     ; tipos de capacidade. Nos endpoints o SINAL é o lado do canal:
     ; positivo = lado ativo (envia), negativo = lado passivo (recebe)

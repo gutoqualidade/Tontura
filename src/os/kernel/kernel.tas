@@ -1079,6 +1079,57 @@ task_restart:
     beq s3, s1, schedule
     j ret_ok
 
+; ── cap_grant: a2 = cap de tarefa (alvo), a3 = slot de origem (aqui),
+;    a4 = slot de destino (no alvo). Transfere a capacidade: a origem fica
+;    livre. Autoridade que já se tem pode mudar de dono; nada é criado nem
+;    copiado, então não existe caminho para forjar ou duplicar direito. ──
+sys_cap_grant:
+    ld a1, 2(s1)
+    call cap_lookup
+    bz a1, bad_cap
+    ld t1, CAP_KIND(a1)
+    li t2, CAP_TASK
+    beq t1, t2, 1f                  ; só cap. de tarefa nomeia o alvo
+    j bad_cap
+1:
+    ld s2, CAP_OBJ(a1)              ; s2 = índice da tarefa alvo
+    bn s2, bad_cap
+    la t1, ntasks
+    ld t1, 0(t1)
+    bge s2, t1, bad_cap
+    ld a1, 3(s1)                    ; slot de origem (cap_lookup valida)
+    call cap_lookup
+    bz a1, bad_cap
+    mov s3, a1                      ; s3 = &capacidade de origem
+    ld t1, CAP_KIND(s3)
+    bz t1, bad_cap                  ; slot vazio não é autoridade
+    ld a1, 4(s1)                    ; slot de destino: validar limites
+    bn a1, bad_cap
+    li t1, CAP_SLOTS
+    bge a1, t1, bad_cap
+    shi t1, s2, TCB_SHIFT
+    la s4, TCB_FIRST
+    add s4, s4, t1                  ; s4 = TCB do alvo
+    add t1, a1, a1
+    add t1, t1, a1
+    add s5, s4, t1
+    addi s5, s5, T_CAPS             ; s5 = &slot de destino
+    ld t1, CAP_KIND(s5)
+    bnz t1, cap_grant_full          ; destino ocupado: nada é sobrescrito
+    ld t1, CAP_KIND(s3)
+    st t1, CAP_KIND(s5)
+    ld t1, CAP_OBJ(s3)
+    st t1, CAP_OBJ(s5)
+    ld t1, CAP_BADGE(s3)
+    st t1, CAP_BADGE(s5)
+    st zr, CAP_KIND(s3)
+    st zr, CAP_OBJ(s3)
+    st zr, CAP_BADGE(s3)
+    j ret_ok
+cap_grant_full:
+    li a1, E_NOSLOT
+    j ret_err
+
 ; ── irq_ack: a2 = capacidade de interrupção; reabilita a linha ──
 sys_irq_ack:
     ld a1, 2(s1)
@@ -1230,7 +1281,7 @@ panic:
     .data
 sys_table:
     .word sys_yield, sys_send, sys_recv, sys_call, sys_reply
-    .word sys_exit, sys_sleep, sys_time, sys_putc, sys_task, sys_irq_ack
+    .word sys_exit, sys_sleep, sys_time, sys_putc, sys_task, sys_irq_ack, sys_cap_grant
     .assert . - sys_table == NSYS
 
 cur:          .word 0               ; TCB corrente

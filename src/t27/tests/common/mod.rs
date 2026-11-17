@@ -1337,5 +1337,185 @@ pub fn detectors() -> Vec<(&'static str, Detector)> {
         ("driver+interrupção", sc_driver_irq),
         ("driver morto e reiniciado", sc_driver_restart),
         ("caos", sc_chaos_mini),
+        ("autoridade móvel", sc_cap_grant),
     ]
+}
+
+/// Fase 6 — autoridade móvel: uma tarefa transfere uma capacidade a outra em
+/// execução e a outra passa a poder usá-la; a origem fica vazia. Sem isso,
+/// todo direito de uma tarefa teria de ser decidido no boot.
+pub fn sc_cap_grant(k: &Program) -> Result<(), String> {
+    // (1) quem NÃO nasceu com autoridade recebe a capacidade e a usa.
+    let taker = prog(
+"    li a1, SYS_RECV
+    li a2, 1
+    li t1, FOREVER
+    sys
+    li a1, SYS_PUTC
+    li a2, 0
+    li a3, 'O'
+    sys
+    li t2, 1
+    bne a1, t2, semcap
+    li a2, 42
+    j exit
+semcap:
+    li a2, 99
+    j exit",
+    );
+    let donor = prog(
+"    li a1, SYS_CAP_GRANT
+    li a2, 7
+    li a3, 8
+    li a4, 0
+    sys
+    li t2, 1
+    bne a1, t2, recusa
+    li a1, SYS_SEND
+    li a2, 0
+    li a3, 7
+    li t1, FOREVER
+    sys
+    li a2, 0
+    j exit
+recusa:
+    li a2, 90
+    j exit",
+    );
+    let mut s = boot_k(
+        k,
+        vec![
+            task("doador", donor).send(0, 1, 5).cap(7, CAP_TASK, 1, 0).con(),
+            task("recebedor", taker).recv(1, 1),
+        ],
+        0,
+        None,
+    )?;
+    let dead = s.k("ST_DEAD");
+    let stop = run_checked(&mut s, 200_000, 64, |s| {
+        s.task("doador").state == dead && s.task("recebedor").state == dead
+    })?;
+    if stop != Stop::Halted(0) {
+        return Err(format!("(1) parada inesperada: {stop:?}"));
+    }
+    if s.task("doador").exit != 0 {
+        return Err(format!("(1) doador recusou a transferência (saída {})", s.task("doador").exit));
+    }
+    if s.task("recebedor").exit != 42 {
+        return Err(format!(
+            "(1) recebedor não usou a capacidade transferida (saída {})",
+            s.task("recebedor").exit
+        ));
+    }
+    if !s.m.console_text().contains('O') {
+        return Err("(1) nada foi escrito com a capacidade transferida".into());
+    }
+
+    // (2) bordas, na própria tarefa: origem vazia, destino ocupado,
+    //     autotransferência para o mesmo slot e a2 que não é cap de tarefa.
+    let ego = prog(
+"    li a1, SYS_CAP_GRANT
+    li a2, 7
+    li a3, 8
+    li a4, 1
+    sys
+    li t2, 1
+    bne a1, t2, f1
+    li a1, SYS_PUTC
+    li a2, 1
+    li a3, 'X'
+    sys
+    li t2, 1
+    bne a1, t2, f2
+    li a1, SYS_PUTC
+    li a2, 8
+    li a3, 'Y'
+    sys
+    li t2, -1
+    bne a1, t2, f3
+    li t2, E_BADCAP
+    bne a2, t2, f3
+    li a1, SYS_CAP_GRANT
+    li a2, 7
+    li a3, 8
+    li a4, 2
+    sys
+    li t2, -1
+    bne a1, t2, f4
+    li t2, E_BADCAP
+    bne a2, t2, f4
+    li a1, SYS_CAP_GRANT
+    li a2, 7
+    li a3, 1
+    li a4, 1
+    sys
+    li t2, -1
+    bne a1, t2, f5
+    li t2, E_NOSLOT
+    bne a2, t2, f5
+    li a1, SYS_CAP_GRANT
+    li a2, 1
+    li a3, 1
+    li a4, 2
+    sys
+    li t2, -1
+    bne a1, t2, f6
+    li t2, E_BADCAP
+    bne a2, t2, f6
+    li a1, SYS_CAP_GRANT
+    li a2, 7
+    li a3, 1
+    li a4, 9
+    sys
+    li t2, -1
+    bne a1, t2, f7
+    li t2, E_BADCAP
+    bne a2, t2, f7
+    li a1, SYS_CAP_GRANT
+    li a2, 7
+    li a3, 1
+    li a4, -1
+    sys
+    li t2, -1
+    bne a1, t2, f8
+    li t2, E_BADCAP
+    bne a2, t2, f8
+    li a2, 0
+    j exit
+f1:
+    li a2, 71
+    j exit
+f2:
+    li a2, 72
+    j exit
+f3:
+    li a2, 73
+    j exit
+f4:
+    li a2, 74
+    j exit
+f5:
+    li a2, 75
+    j exit
+f6:
+    li a2, 76
+    j exit
+f7:
+    li a2, 77
+    j exit
+f8:
+    li a2, 78
+    j exit",
+    );
+    let mut s = boot_k(k, vec![task("ego", ego).cap(7, CAP_TASK, 0, 0).con()], 0, None)?;
+    let dead = s.k("ST_DEAD");
+    run_checked(&mut s, 100_000, 64, |s| s.task("ego").state == dead)?;
+    if s.task("ego").exit != 0 {
+        return Err(format!("(2) borda {} falhou", s.task("ego").exit));
+    }
+    let out = s.m.console_text();
+    if !out.contains('X') || out.contains('Y') {
+        return Err(format!("(2) console inesperado: {out:?}"));
+    }
+    Ok(())
 }

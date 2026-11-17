@@ -89,6 +89,12 @@ fn mutants() -> Vec<Mutant> {
         m("ocioso desliga apesar de haver driver vivo", "7:  bz a5, 8f\n", 0, "7:  j 8f\n"),
         m("driver morto mantém a linha habilitada", "    ld a1, T_IRQ(s2)                ; driver morto: a linha dele fica mascarada\n    call irq_disable\n", 0, "    ld a1, T_IRQ(s2)\n    nop\n"),
         m("dispositivo mapeado com execução", "    ld a2, BE_DEV_VPN(s6)\n    li a4, PTE_RW\n", 0, "    ld a2, BE_DEV_VPN(s6)\n    li a4, 13\n"),
+        // ── autoridade móvel (cap_grant) ──
+        m("concessão aceita alvo que não é tarefa", "    beq t1, t2, 1f                  ; só cap. de tarefa nomeia o alvo\n    j bad_cap\n1:\n", 0, "    nop\n    nop\n1:\n"),
+        m("concessão aceita origem vazia", "    bz t1, bad_cap                  ; slot vazio não é autoridade\n", 0, "    nop\n"),
+        m("concessão sobrescreve destino ocupado", "    bnz t1, cap_grant_full          ; destino ocupado: nada é sobrescrito\n", 0, "    nop\n"),
+        m("concessão não confere limites do destino", "    li t1, CAP_SLOTS\n    bge a1, t1, bad_cap\n", 0, "    li t1, CAP_SLOTS\n    nop\n"),
+        m("concessão copia em vez de mover", "    st zr, CAP_KIND(s3)\n", 0, "    nop\n"),
     ]
 }
 

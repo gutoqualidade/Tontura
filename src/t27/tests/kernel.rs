@@ -39,6 +39,7 @@ scenarios! {
     killed_driver_is_restarted_and_service_resumes => sc_driver_restart;
     receivers_are_served_in_arrival_order => sc_fifo_receivers;
     pending_death_notices_are_collected_once_in_order => sc_zombie_notices;
+    authority_can_move_between_tasks_and_stays_single => sc_cap_grant;
 }
 
 #[test]

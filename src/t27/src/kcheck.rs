@@ -3,7 +3,7 @@
 //! que inspeciona a RAM). Os testes chamam `check_state` a CADA saída do
 //! núcleo (ERET) e `check_memory` periodicamente.
 //!
-//! O que é verificado está enumerado em docs/08-micronucleo.md §6 (I1–I11).
+//! O que é verificado está enumerado em docs/08-micronucleo.md §6 (I1–I12).
 //! Isto é TESTE de invariantes sobre execuções concretas, não prova.
 
 use std::collections::HashMap;
@@ -173,6 +173,35 @@ impl KCheck {
             // I10: interrupção pendente só em driver vivo
             if t.irqpend != 0 && (t.irq == 0 || !alive(t.state)) {
                 return Err(format!("I10: {} com interrupção pendente sem ser driver vivo", t.name));
+            }
+            // I12: toda capacidade não vazia é bem formada — tipo conhecido,
+            // objeto dentro do domínio do tipo. Slot vazio é zero puro.
+            // Desde cap_grant as capacidades mudam de dono em execução: mover
+            // autoridade não pode inventar direito novo.
+            for i in 0..k("CAP_SLOTS") {
+                let base = t.tcb + k("T_CAPS") + 3 * i;
+                let (kind, obj, badge) =
+                    (rd(base + k("CAP_KIND"))?, rd(base + k("CAP_OBJ"))?, rd(base + k("CAP_BADGE"))?);
+                let bad = |why: String| format!("I12: {} slot {i} {why}", t.name);
+                match kind {
+                    0 if obj != 0 || badge != 0 => return Err(bad(format!("vazio com resto sujo ({obj},{badge})"))),
+                    0 | -1 => {}
+                    1 if badge < 0 => return Err(bad("de envio com selo negativo".into())),
+                    1 => {}
+                    2 if obj != 0 => return Err(bad(format!("de console com objeto {obj} (não usado)"))),
+                    2 => {}
+                    3 => {
+                        if !(0..self.ntasks as i64).contains(&obj) {
+                            return Err(bad(format!("para tarefa inexistente {obj}")));
+                        }
+                        if rd(tcbs + 40 + size * obj + k("T_STATE"))? == free {
+                            return Err(bad(format!("para slot livre {obj}")));
+                        }
+                    }
+                    4 if !(2..=27).contains(&obj) => return Err(bad(format!("para linha inválida {obj}"))),
+                    4 => {}
+                    _ => return Err(bad(format!("com tipo desconhecido {kind}"))),
+                }
             }
         }
 
