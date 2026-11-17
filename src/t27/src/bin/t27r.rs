@@ -5,7 +5,8 @@
 //!   t27r programa.t27r -o saida.tas
 //!   t27r -                        → lê a entrada padrão, escreve na saída
 //!
-//!   t27r programa.t27r --tir      → mesmo .tas, gerado via TIR (docs/13)
+//!   t27r programa.t27r --pilha    → .tas pelo gerador de pilha antigo (oráculo)
+//!   t27r modulo.t27r --kernel     → biblioteca .tas do núcleo (docs/14)
 //!   t27r programa.t27r --emit-ir  → texto do TIR (só leitura humana)
 //!   t27r programa.t27r --emit-tir → binário .tir (o formato canônico)
 //!
@@ -21,6 +22,7 @@ fn main() -> ExitCode {
     let mut input: Option<String> = None;
     let mut output: Option<String> = None;
     let mut mode = "tas";
+    let mut kmode = lang::Mode::User;
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -34,9 +36,10 @@ fn main() -> ExitCode {
                     }
                 }
             }
-            "--tir" | "--emit-ir" | "--emit-tir" => mode = &args[i][2..],
+            "--pilha" | "--emit-ir" | "--emit-tir" => mode = &args[i][2..],
+            "--kernel" => kmode = lang::Mode::Priv,
             "-h" | "--help" => {
-                println!("uso: t27r <programa.t27r | -> [-o saida] [--tir | --emit-ir | --emit-tir]");
+                println!("uso: t27r <programa.t27r | -> [-o saida] [--kernel] [--pilha | --emit-ir | --emit-tir]");
                 return ExitCode::SUCCESS;
             }
             other => {
@@ -70,10 +73,10 @@ fn main() -> ExitCode {
         }
     };
     let (result, ext) = match mode {
-        "tir" => (lang::compile_tir(&src).map(String::into_bytes), ".tas"),
-        "emit-ir" => (lang::to_ir(&src).map(|m| lang::ir::print(&m).into_bytes()), ".tir.txt"),
-        "emit-tir" => (lang::to_ir(&src).map(|m| m.encode()), ".tir"),
-        _ => (lang::compile(&src).map(String::into_bytes), ".tas"),
+        "pilha" => (lang::compile_pilha(&src).map(String::into_bytes), ".tas"),
+        "emit-ir" => (lang::to_ir_mode(&src, kmode).map(|m| lang::ir::print(&m).into_bytes()), ".tir.txt"),
+        "emit-tir" => (lang::to_ir_mode(&src, kmode).map(|m| m.encode()), ".tir"),
+        _ => (lang::compile_mode(&src, kmode).map(String::into_bytes), ".tas"),
     };
     match result {
         Ok(tas) => {

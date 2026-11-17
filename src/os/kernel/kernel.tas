@@ -274,7 +274,7 @@ init_task:
     st t1, T_STATE(s5)
     ld a1, T_IRQ(s5)                ; o driver (re)nasce com a sua linha habilitada
     bz a1, 7f
-    call irq_enable
+    call fn_irq_enable
 7:  pop s9
     pop s8
     pop s7
@@ -627,7 +627,7 @@ irq_dispatch:
     push s2
     push s3
     mov s2, a1
-    call irq_disable
+    call fn_irq_disable
     la s3, TCB_FIRST
 1:  ld t3, T_IRQ(s3)
     bne t3, s2, 2f
@@ -667,46 +667,11 @@ deliver_irq:
     st zr, 10(a1)                   ; sem recibo
     ret
 
-; ── irq_enable / irq_disable: a1 = linha (folhas: usam t1..t3).
-;    A máscara é uma palavra com um trit por linha (0 ou +1). ──
-irq_enable:
-    bnp a1, 9f
-    li t1, MAX_IRQ
-    bgt a1, t1, 9f
-    la t1, irq_on
-    add t1, t1, a1
-    ld t2, 0(t1)
-    bnz t2, 9f
-    li t2, 1
-    st t2, 0(t1)
-    addi t3, a1, -1
-    sh t2, t2, t3                   ; peso da linha: 3^(linha−1)
-    la t1, imask_shadow
-    ld t3, 0(t1)
-    add t3, t3, t2
-    st t3, 0(t1)
-    csrw imask, t3
-9:  ret
-irq_disable:
-    bnp a1, 9f
-    li t1, MAX_IRQ
-    bgt a1, t1, 9f
-    la t1, irq_on
-    add t1, t1, a1
-    ld t2, 0(t1)
-    bz t2, 8f
-    st zr, 0(t1)
-    li t2, 1
-    addi t3, a1, -1
-    sh t2, t2, t3
-    la t1, imask_shadow
-    ld t3, 0(t1)
-    sub t3, t3, t2
-    st t3, 0(t1)
-8:  la t1, imask_shadow             ; reescreve SEMPRE a máscara da máquina a partir da
-    ld t3, 0(t1)                    ; cópia: uma linha espúria (que o núcleo julgava
-    csrw imask, t3                  ; mascarada) não vira tempestade de interrupções
-9:  ret
+; ── irq_enable / irq_disable: a1 = linha (fora de 1..27 é ignorada).
+;    Desde a Fase 9 em T27R, compilado via TIR (src/os/kernel/irq.t27r,
+;    docs/14 §6). Contrato com o núcleo: clobbera a1, t1..t3; preserva
+;    s1..s11; usa até 16 palavras de pilha. ──
+    .include "irq.gen.tas"
 
 ; ============================================================
 ; falhas e morte
@@ -772,7 +737,7 @@ kill_task:
     la t2, TCB_LIMIT
     blt s3, t2, 1b
     ld a1, T_IRQ(s2)                ; driver morto: a linha dele fica mascarada
-    call irq_disable
+    call fn_irq_disable
     pop s3
     pop s2
     pop lr
@@ -1139,7 +1104,7 @@ sys_irq_ack:
     li t2, CAP_IRQ
     bne t1, t2, bad_cap
     ld a1, CAP_OBJ(a1)
-    call irq_enable
+    call fn_irq_enable
     j ret_ok
 
 ; ── cap_lookup: a1 = slot (QUALQUER palavra vinda do usuário) →

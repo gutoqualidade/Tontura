@@ -1,0 +1,221 @@
+; ────────────────────────────────────────────────────────────
+; gerado por t27r via TIR (biblioteca, docs/14) — não editar
+; ────────────────────────────────────────────────────────────
+fn_irq_enable:
+    push lr
+    push s11
+    mov s11, sp
+    addi sp, sp, -14
+    st a1, -1(s11)
+    ld t1, -1(s11)
+    li t2, 0
+    cmp t3, t1, t2
+    bnp t3, .L_irq_enable_1
+    ld t1, -1(s11)
+    li t2, 27
+    cmp t3, t1, t2
+    bp t3, .L_irq_enable_3
+    ld t1, -1(s11)
+    li t2, 0
+    cmp t3, t1, t2
+    bnn t3, .L_irq_enable_5
+.Ltrap_irq_enable_7: brk
+.L_irq_enable_5:
+.L_irq_enable_6:
+    ld t1, -1(s11)
+    li t2, 28
+    cmp t3, t1, t2
+    bn t3, .L_irq_enable_8
+.Ltrap_irq_enable_10: brk
+.L_irq_enable_8:
+.L_irq_enable_9:
+    la a1, irq_on
+    st a1, -2(s11)
+    ld t1, -2(s11)
+    ld t2, -1(s11)
+    add a1, t1, t2
+    st a1, -3(s11)
+    ld t1, -3(s11)
+    ld a1, 0(t1)
+    st a1, -4(s11)
+    ld t1, -4(s11)
+    li t2, 0
+    cmp t3, t1, t2
+    bnz t3, .L_irq_enable_11
+    ld t1, -1(s11)
+    li t2, 0
+    cmp t3, t1, t2
+    bnn t3, .L_irq_enable_13
+.Ltrap_irq_enable_15: brk
+.L_irq_enable_13:
+.L_irq_enable_14:
+    ld t1, -1(s11)
+    li t2, 28
+    cmp t3, t1, t2
+    bn t3, .L_irq_enable_16
+.Ltrap_irq_enable_18: brk
+.L_irq_enable_16:
+.L_irq_enable_17:
+    la a1, irq_on
+    st a1, -5(s11)
+    ld t1, -5(s11)
+    ld t2, -1(s11)
+    add a1, t1, t2
+    st a1, -6(s11)
+    ld t1, -6(s11)
+    li a1, 1
+    st a1, 0(t1)
+    la a1, imask_shadow
+    st a1, -7(s11)
+    ld t1, -7(s11)
+    ld a1, 0(t1)
+    st a1, -8(s11)
+    ld t1, -1(s11)
+    li t2, 1
+    sub a1, t1, t2
+    st a1, -9(s11)
+    li t1, 1
+    ld t2, -9(s11)
+    sh a1, t1, t2
+    st a1, -10(s11)
+    ld t1, -8(s11)
+    ld t2, -10(s11)
+    add a1, t1, t2
+    st a1, -11(s11)
+    la a1, imask_shadow
+    st a1, -12(s11)
+    ld t1, -12(s11)
+    ld a1, -11(s11)
+    st a1, 0(t1)
+    la a1, imask_shadow
+    st a1, -13(s11)
+    ld t1, -13(s11)
+    ld a1, 0(t1)
+    st a1, -14(s11)
+    ld t1, -14(s11)
+    csrw imask, t1
+    j .L_irq_enable_12
+.L_irq_enable_11:
+.L_irq_enable_12:
+    j .L_irq_enable_4
+.L_irq_enable_3:
+.L_irq_enable_4:
+    j .L_irq_enable_2
+.L_irq_enable_1:
+.L_irq_enable_2:
+    li a1, 0
+    j .Lret_irq_enable
+.Lret_irq_enable:
+    mov sp, s11
+    pop s11
+    pop lr
+    ret
+fn_irq_disable:
+    push lr
+    push s11
+    mov s11, sp
+    addi sp, sp, -14
+    st a1, -1(s11)
+    ld t1, -1(s11)
+    li t2, 0
+    cmp t3, t1, t2
+    bnp t3, .L_irq_disable_1
+    ld t1, -1(s11)
+    li t2, 27
+    cmp t3, t1, t2
+    bp t3, .L_irq_disable_3
+    ld t1, -1(s11)
+    li t2, 0
+    cmp t3, t1, t2
+    bnn t3, .L_irq_disable_5
+.Ltrap_irq_disable_7: brk
+.L_irq_disable_5:
+.L_irq_disable_6:
+    ld t1, -1(s11)
+    li t2, 28
+    cmp t3, t1, t2
+    bn t3, .L_irq_disable_8
+.Ltrap_irq_disable_10: brk
+.L_irq_disable_8:
+.L_irq_disable_9:
+    la a1, irq_on
+    st a1, -2(s11)
+    ld t1, -2(s11)
+    ld t2, -1(s11)
+    add a1, t1, t2
+    st a1, -3(s11)
+    ld t1, -3(s11)
+    ld a1, 0(t1)
+    st a1, -4(s11)
+    ld t1, -4(s11)
+    li t2, 0
+    cmp t3, t1, t2
+    bz t3, .L_irq_disable_11
+    ld t1, -1(s11)
+    li t2, 0
+    cmp t3, t1, t2
+    bnn t3, .L_irq_disable_13
+.Ltrap_irq_disable_15: brk
+.L_irq_disable_13:
+.L_irq_disable_14:
+    ld t1, -1(s11)
+    li t2, 28
+    cmp t3, t1, t2
+    bn t3, .L_irq_disable_16
+.Ltrap_irq_disable_18: brk
+.L_irq_disable_16:
+.L_irq_disable_17:
+    la a1, irq_on
+    st a1, -5(s11)
+    ld t1, -5(s11)
+    ld t2, -1(s11)
+    add a1, t1, t2
+    st a1, -6(s11)
+    ld t1, -6(s11)
+    li a1, 0
+    st a1, 0(t1)
+    la a1, imask_shadow
+    st a1, -7(s11)
+    ld t1, -7(s11)
+    ld a1, 0(t1)
+    st a1, -8(s11)
+    ld t1, -1(s11)
+    li t2, 1
+    sub a1, t1, t2
+    st a1, -9(s11)
+    li t1, 1
+    ld t2, -9(s11)
+    sh a1, t1, t2
+    st a1, -10(s11)
+    ld t1, -8(s11)
+    ld t2, -10(s11)
+    sub a1, t1, t2
+    st a1, -11(s11)
+    la a1, imask_shadow
+    st a1, -12(s11)
+    ld t1, -12(s11)
+    ld a1, -11(s11)
+    st a1, 0(t1)
+    j .L_irq_disable_12
+.L_irq_disable_11:
+.L_irq_disable_12:
+    la a1, imask_shadow
+    st a1, -13(s11)
+    ld t1, -13(s11)
+    ld a1, 0(t1)
+    st a1, -14(s11)
+    ld t1, -14(s11)
+    csrw imask, t1
+    j .L_irq_disable_4
+.L_irq_disable_3:
+.L_irq_disable_4:
+    j .L_irq_disable_2
+.L_irq_disable_1:
+.L_irq_disable_2:
+    li a1, 0
+    j .Lret_irq_disable
+.Lret_irq_disable:
+    mov sp, s11
+    pop s11
+    pop lr
+    ret

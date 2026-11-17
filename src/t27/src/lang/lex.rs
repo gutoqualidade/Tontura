@@ -20,6 +20,7 @@ pub enum Tok {
     True,
     False,
     Word,
+    Static,
     // pontuação
     Arrow,
     FatArrow,
@@ -27,6 +28,8 @@ pub enum Tok {
     RParen,
     LBrace,
     RBrace,
+    LBracket,
+    RBracket,
     Comma,
     Semi,
     Colon,
@@ -117,6 +120,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, LexError> {
                 "true" => Tok::True,
                 "false" => Tok::False,
                 "word" => Tok::Word,
+                "static" => Tok::Static,
                 "_" => Tok::Underscore,
                 _ => Tok::Ident(s),
             };
@@ -160,6 +164,8 @@ pub fn lex(src: &str) -> Result<Vec<Token>, LexError> {
                 ')' => Tok::RParen,
                 '{' => Tok::LBrace,
                 '}' => Tok::RBrace,
+                '[' => Tok::LBracket,
+                ']' => Tok::RBracket,
                 ',' => Tok::Comma,
                 ';' => Tok::Semi,
                 ':' => Tok::Colon,

@@ -144,6 +144,7 @@ impl Gen {
                 self.line(&format!("    j {}", self.ret));
             }
             Stmt::Match { scrutinee, arms, .. } => self.match_stmt(scrutinee, arms),
+            Stmt::Store { .. } => unreachable!("static: recusado em compile_pilha"),
             Stmt::Expr(e) => {
                 self.expr(e);
             }
@@ -254,6 +255,7 @@ impl Gen {
                 }
             }
             Expr::Call(name, args, _, _) => self.call(name, args),
+            Expr::Index(..) => unreachable!("static: recusado em compile_pilha"),
         }
     }
 
@@ -277,6 +279,13 @@ impl Gen {
             "time" => {
                 self.line("    li a1, SYS_TIME");
                 self.line("    sys");
+            }
+            "shift" => {
+                self.expr(&args[0]);
+                self.line("    push a1");
+                self.expr(&args[1]);
+                self.line("    pop t1");
+                self.line("    sh a1, t1, a1");
             }
             "sign" => {
                 self.expr(&args[0]);

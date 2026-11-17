@@ -1,0 +1,44 @@
+// TENERURA — máscara de interrupções do núcleo, em T27R compilado via TIR.
+//
+// Primeira rotina do micronúcleo que saiu do assembly (docs/14 §6). Mesmo
+// contrato das versões em assembly que substitui:
+//   irq_enable(linha) / irq_disable(linha): linha fora de 1..27 é ignorada;
+//   a máscara é uma palavra com um trit por linha (peso 3^(linha−1)).
+// Gerar: tools/t27r.sh src/os/kernel/irq.t27r --kernel -o src/os/kernel/irq.gen.tas
+// (o teste `kernel_tir_em_dia` falha se o .gen.tas não for exatamente isto)
+//
+// `if` aninhados em vez de `&&`: cada instrução do núcleo tem de ser
+// executada pela suíte (cobertura), e o ramo "falso" de um `&&` vira código
+// que só roda com uma linha inválida — que nenhum chamador produz.
+
+static mut irq_on: [word; 28];   // por linha: 1 = habilitada (índice 0 não usado)
+static mut imask_shadow: word;   // cópia da máscara da máquina (CSR imask = 8)
+
+fn irq_enable(linha: word) -> word {
+    if linha > 0 {
+        if linha <= 27 {
+            if irq_on[linha] == 0 {
+                irq_on[linha] = 1;
+                imask_shadow = imask_shadow + shift(1, linha - 1);
+                csr_write(8, imask_shadow);
+            }
+        }
+    }
+    return 0;
+}
+
+fn irq_disable(linha: word) -> word {
+    if linha > 0 {
+        if linha <= 27 {
+            if irq_on[linha] != 0 {
+                irq_on[linha] = 0;
+                imask_shadow = imask_shadow - shift(1, linha - 1);
+            }
+            // reescreve SEMPRE a máscara da máquina a partir da cópia: uma
+            // linha espúria (que o núcleo julgava mascarada) não vira
+            // tempestade de interrupções
+            csr_write(8, imask_shadow);
+        }
+    }
+    return 0;
+}

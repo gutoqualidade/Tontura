@@ -83,11 +83,11 @@ fn mutants() -> Vec<Mutant> {
         m("reinício não conta a geração", "    ld t1, T_GEN(s3)\n    addi t1, t1, 1\n    st t1, T_GEN(s3)\n", 0, "    ld t1, T_GEN(s3)\n    nop\n    st t1, T_GEN(s3)\n"),
         m("matar não mata", "    st zr, T_EXIT(s3)\n    mov a1, s3\n    call kill_task\n", 0, "    st zr, T_EXIT(s3)\n    mov a1, s3\n    nop\n"),
         // ── interrupções ──
-        m("linha não mascarada ao entregar a interrupção", "    mov s2, a1\n    call irq_disable\n    la s3, TCB_FIRST\n", 0, "    mov s2, a1\n    nop\n    la s3, TCB_FIRST\n"),
-        m("reconhecimento não reabilita a linha", "    ld a1, CAP_OBJ(a1)\n    call irq_enable\n", 0, "    ld a1, CAP_OBJ(a1)\n    nop\n"),
+        m("linha não mascarada ao entregar a interrupção", "    mov s2, a1\n    call fn_irq_disable\n    la s3, TCB_FIRST\n", 0, "    mov s2, a1\n    nop\n    la s3, TCB_FIRST\n"),
+        m("reconhecimento não reabilita a linha", "    ld a1, CAP_OBJ(a1)\n    call fn_irq_enable\n", 0, "    ld a1, CAP_OBJ(a1)\n    nop\n"),
         m("interrupção pendente nunca entregue no recv", "    ld t1, T_IRQPEND(s1)            ; interrupção pendente do próprio driver vem primeiro\n    bz t1, 1f\n", 0, "    ld t1, T_IRQPEND(s1)\n    j 1f\n"),
         m("ocioso desliga apesar de haver driver vivo", "7:  bz a5, 8f\n", 0, "7:  j 8f\n"),
-        m("driver morto mantém a linha habilitada", "    ld a1, T_IRQ(s2)                ; driver morto: a linha dele fica mascarada\n    call irq_disable\n", 0, "    ld a1, T_IRQ(s2)\n    nop\n"),
+        m("driver morto mantém a linha habilitada", "    ld a1, T_IRQ(s2)                ; driver morto: a linha dele fica mascarada\n    call fn_irq_disable\n", 0, "    ld a1, T_IRQ(s2)\n    nop\n"),
         m("dispositivo mapeado com execução", "    ld a2, BE_DEV_VPN(s6)\n    li a4, PTE_RW\n", 0, "    ld a2, BE_DEV_VPN(s6)\n    li a4, 13\n"),
         // ── autoridade móvel (cap_grant) ──
         m("concessão aceita alvo que não é tarefa", "    beq t1, t2, 1f                  ; só cap. de tarefa nomeia o alvo\n    j bad_cap\n1:\n", 0, "    nop\n    nop\n1:\n"),

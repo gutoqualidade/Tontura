@@ -5,11 +5,13 @@
 //! ```text
 //! programa   := item*
 //! item       := 'fn' ident '(' params? ')' ('->' 'word')? bloco
+//!             | 'static' 'mut' ident ':' ('word' | '[' 'word' ';' número ']') ';'
 //! params     := param (',' param)*
 //! param      := ident ':' 'word'
 //! bloco      := '{' comando* '}'
 //! comando    := 'let' 'mut'? ident (':' 'word')? '=' expr ';'
 //!             | ident '=' expr ';'
+//!             | ident '[' expr ']' '=' expr ';'
 //!             | 'if' expr bloco ('else' bloco)?
 //!             | 'while' expr bloco
 //!             | 'return' expr? ';'
@@ -24,7 +26,7 @@
 //! soma       := termo (('+'|'-') termo)*
 //! termo      := unário (('*'|'/'|'%') unário)*
 //! unário     := ('-'|'!') unário | primário
-//! primário   := número | 'true' | 'false' | ident | chamada | '(' expr ')'
+//! primário   := número | 'true' | 'false' | ident | ident '[' expr ']' | chamada | '(' expr ')'
 //! chamada    := ident '(' (expr (',' expr)*)? ')'
 //! ```
 
@@ -58,6 +60,8 @@ pub enum Expr {
     Num(i64),
     Var(String, usize, usize),
     Call(String, Vec<Expr>, usize, usize),
+    /// `nome[i]`: só sobre `static` de array
+    Index(String, Box<Expr>, usize, usize),
     Unary(UnOp, Box<Expr>),
     Binary(BinOp, Box<Expr>, Box<Expr>),
 }
@@ -66,6 +70,7 @@ pub enum Expr {
 pub enum Stmt {
     Let { name: String, mutable: bool, init: Expr, line: usize, col: usize },
     Assign { name: String, value: Expr, line: usize, col: usize },
+    Store { name: String, index: Expr, value: Expr, line: usize, col: usize },
     If { cond: Expr, then: Block, els: Option<Block> },
     While { cond: Expr, body: Block },
     Return { value: Option<Expr> },
@@ -99,9 +104,21 @@ pub struct Fn {
     pub col: usize,
 }
 
+/// `static mut nome: word;` ou `static mut nome: [word; n];` — dado
+/// definido FORA do programa (p.ex. no `.data` do núcleo), docs/15.
+#[derive(Debug)]
+pub struct Static {
+    pub name: String,
+    pub size: i64,
+    pub array: bool,
+    pub line: usize,
+    pub col: usize,
+}
+
 #[derive(Debug)]
 pub struct Program {
     pub fns: Vec<Fn>,
+    pub statics: Vec<Static>,
 }
 
 pub struct ParseError {
@@ -177,11 +194,39 @@ impl Parser {
     }
 
     pub fn program(&mut self) -> R<Program> {
-        let mut fns = Vec::new();
+        let (mut fns, mut statics) = (Vec::new(), Vec::new());
         while self.peek() != &Tok::Eof {
-            fns.push(self.function()?);
+            if self.peek() == &Tok::Static {
+                statics.push(self.static_item()?);
+            } else {
+                fns.push(self.function()?);
+            }
         }
-        Ok(Program { fns })
+        Ok(Program { fns, statics })
+    }
+
+    fn static_item(&mut self) -> R<Static> {
+        let (line, col) = self.pos();
+        self.bump();
+        self.expect(&Tok::Mut, "'mut' (dado externo é sempre mutável)")?;
+        let name = self.ident()?;
+        self.expect(&Tok::Colon, "':'")?;
+        let (size, array) = if self.eat(&Tok::LBracket) {
+            self.expect(&Tok::Word, "o tipo 'word'")?;
+            self.expect(&Tok::Semi, "';'")?;
+            let n = match self.peek().clone() {
+                Tok::Num(v) => v,
+                other => return self.err(format!("esperava o tamanho do array, achei {other:?}")),
+            };
+            self.bump();
+            self.expect(&Tok::RBracket, "']'")?;
+            (n, true)
+        } else {
+            self.expect(&Tok::Word, "o tipo 'word' ou '[word; n]'")?;
+            (1, false)
+        };
+        self.expect(&Tok::Semi, "';'")?;
+        Ok(Static { name, size, array, line, col })
     }
 
     fn function(&mut self) -> R<Fn> {
@@ -287,6 +332,24 @@ impl Parser {
                 }
                 self.expect(&Tok::RBrace, "'}'")?;
                 Ok(Stmt::Match { scrutinee, arms, line })
+            }
+            Tok::Ident(name) if self.peek_at(1) == &Tok::LBracket => {
+                // `a[i] = v;` — ou uma expressão que começa com `a[i]`
+                let (line, col) = self.pos();
+                let save = self.i;
+                self.bump();
+                self.bump();
+                let index = self.expr()?;
+                self.expect(&Tok::RBracket, "']'")?;
+                if self.eat(&Tok::Assign) {
+                    let value = self.expr()?;
+                    self.expect(&Tok::Semi, "';'")?;
+                    return Ok(Stmt::Store { name, index, value, line, col });
+                }
+                self.i = save;
+                let e = self.expr()?;
+                self.expect(&Tok::Semi, "';'")?;
+                Ok(Stmt::Expr(e))
             }
             Tok::Ident(name) if self.peek_at(1) == &Tok::Assign => {
                 let (line, col) = self.pos();
@@ -435,6 +498,10 @@ impl Parser {
                     }
                     self.expect(&Tok::RParen, "')'")?;
                     Ok(Expr::Call(name, args, line, col))
+                } else if self.eat(&Tok::LBracket) {
+                    let i = self.expr()?;
+                    self.expect(&Tok::RBracket, "']'")?;
+                    Ok(Expr::Index(name, Box::new(i), line, col))
                 } else {
                     Ok(Expr::Var(name, line, col))
                 }

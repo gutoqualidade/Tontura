@@ -102,9 +102,15 @@ fn kernel_instruction_coverage_and_costs() {
         std::fs::write(out, &report).unwrap();
     }
     // As únicas instruções aceitas como não executadas são os laços de
-    // segurança depois de desligar a máquina (inalcançáveis por construção).
+    // segurança depois de desligar a máquina e o `brk` das verificações de
+    // limite que o TIR põe no código gerado (docs/14 §6): inalcançáveis
+    // enquanto os chamadores respeitam o contrato — e, se um deles falhar,
+    // o núcleo para em pânico em vez de escrever fora do array.
     for a in &missed {
         let (_, _, src) = k.listing.iter().find(|(addr, _, _)| addr == a).unwrap();
-        assert!(src.contains("j 9b") || src.contains("j 1b"), "caminho do núcleo sem teste em {a}: {src}");
+        assert!(
+            src.contains("j 9b") || src.contains("j 1b") || src.contains(".Ltrap_"),
+            "caminho do núcleo sem teste em {a}: {src}"
+        );
     }
 }

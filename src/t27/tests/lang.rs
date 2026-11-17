@@ -12,9 +12,10 @@ use tenerura_t27::lang;
 
 type Compiler = fn(&str) -> Result<String, lang::Diag>;
 
-/// Os dois geradores: máquina de pilha direto da AST, e via TIR (docs/13).
+/// Os dois geradores: máquina de pilha direto da AST (oráculo), e via TIR
+/// (o caminho de compilação, docs/13).
 /// Todo programa executável roda nos dois e o resultado tem de ser igual.
-const BACKENDS: [(&str, Compiler); 2] = [("pilha", lang::compile), ("tir", lang::compile_tir)];
+const BACKENDS: [(&str, Compiler); 2] = [("pilha", lang::compile_pilha), ("tir", lang::compile)];
 
 /// Compila e monta; devolve o programa de usuário.
 fn build_with(c: Compiler, src: &str) -> Result<tenerura_t27::asm::Program, String> {

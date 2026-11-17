@@ -7,11 +7,16 @@
 //! resultados do comando (e argumentos das regiões do laço). Não há PHI
 //! para inserir nem para limpar depois.
 //!
-//! Pressupõe programa aceito por `check`.
+//! Acesso `a[i]` a um `static` vira verificação de limite explícita
+//! (`if i < 0 { trap }`, `if i >= n { trap }`) seguida de `ptradd`; com
+//! índice literal a checagem já provou o limite e o validador o reconfere
+//! pela proveniência. Nenhum programa T27R aceito alcança UB de memória.
+//!
+//! Pressupõe programa aceito por `check` no mesmo modo.
 
 use std::collections::{BTreeSet, HashMap};
 
-use super::ir::{BinK, Func, Inst, IntrK, Module, Op, Region, Ty, UnK};
+use super::ir::{BinK, Func, Global, Inst, IntrK, Mode, Module, Op, Region, Ty, UnK, FLAG_PRIV, NO_ENTRY};
 use super::parse::{BinOp, Block, Expr, Pat, Program, Stmt, UnOp};
 
 struct Rb {
@@ -24,23 +29,35 @@ struct Rb {
 struct L<'p> {
     m: Module,
     fids: HashMap<&'p str, u32>,
+    /// static → (índice do global, tamanho, é array)
+    statics: HashMap<&'p str, (u32, i64, bool)>,
     regs: Vec<Rb>,
     rfirst: u32,
     cur: usize,
     nvals: u32,
     /// variável → valor corrente; a posição é a identidade da variável
     env: Vec<(&'p str, u32)>,
+    /// valores que são `const` (o SSA leva literais por `let`/atribuição)
+    consts: HashMap<u32, i64>,
+    /// primeiro índice constante fora do array (vira erro de compilação)
+    err: Option<String>,
 }
 
-pub fn lower(p: &Program) -> Module {
+/// Erro só em um caso: índice conhecido na compilação e fora do array —
+/// como o `unconditional_panic` do rustc. O TIR nunca contém acesso com
+/// deslocamento constante fora da alocação, nem em código morto.
+pub fn lower(p: &Program, mode: Mode) -> Result<Module, String> {
     let mut l = L {
         m: Module::default(),
         fids: p.fns.iter().enumerate().map(|(i, f)| (f.name.as_str(), i as u32)).collect(),
+        statics: p.statics.iter().enumerate().map(|(i, s)| (s.name.as_str(), (i as u32, s.size, s.array))).collect(),
         regs: Vec::new(),
         rfirst: 0,
         cur: 0,
         nvals: 0,
         env: Vec::new(),
+        consts: HashMap::new(),
+        err: None,
     };
     // assinaturas primeiro: chamadas para frente usam o índice da callee
     let sigs: Vec<u32> = p
@@ -51,11 +68,23 @@ pub fn lower(p: &Program) -> Module {
             l.list(&[n, 1].into_iter().chain((0..=n).map(|_| Ty::Word as u32)).collect::<Vec<_>>())
         })
         .collect();
+    for s in &p.statics {
+        let name = l.m.strings.len() as u32;
+        l.m.strings.extend_from_slice(s.name.as_bytes());
+        l.m.globals.push(Global { name, name_len: s.name.len() as u32, size: s.size as u32 });
+    }
     for (f, sig) in p.fns.iter().zip(sigs) {
         l.func(f, sig);
     }
-    l.m.entry = l.fids["main"];
-    l.m
+    // núcleo: biblioteca privilegiada; usuário: programa com entrada `main`
+    (l.m.flags, l.m.entry) = match mode {
+        Mode::Priv => (FLAG_PRIV, NO_ENTRY),
+        Mode::User => (0, l.fids["main"]),
+    };
+    match l.err {
+        Some(e) => Err(e),
+        None => Ok(l.m),
+    }
 }
 
 impl<'p> L<'p> {
@@ -92,7 +121,9 @@ impl<'p> L<'p> {
     }
 
     fn konst(&mut self, v: i64) -> u32 {
-        self.val(Op::Const, 0, v as u64 as u32, (v as u64 >> 32) as u32)
+        let x = self.val(Op::Const, 0, v as u64 as u32, (v as u64 >> 32) as u32);
+        self.consts.insert(x, v);
+        x
     }
 
     fn bin(&mut self, k: BinK, a: u32, b: u32) -> u32 {
@@ -104,8 +135,42 @@ impl<'p> L<'p> {
         self.emit(Inst { op: Op::Yield, n: xs.len() as u16, b, ..Inst::new(Op::Yield) });
     }
 
-    fn lookup(&self, name: &str) -> usize {
-        self.env.iter().rposition(|(n, _)| *n == name).expect("t27r: variável passou pela checagem sem valor")
+    /// variável local (posição em `env`); `None` = é um static
+    fn lookup(&self, name: &str) -> Option<usize> {
+        self.env.iter().rposition(|(n, _)| *n == name)
+    }
+
+    /// `if c { trap } else {}` — o caminho de falha de uma verificação
+    fn trap_if(&mut self, c: u32) {
+        let parent = self.cur;
+        self.cur = self.region(0);
+        self.emit(Inst::new(Op::Trap));
+        let rt = self.rfirst + self.cur as u32;
+        self.cur = self.region(0);
+        self.yield_(&[]);
+        let re = self.rfirst + self.cur as u32;
+        self.cur = parent;
+        self.structured(Op::If, c, &[rt, re], &[]);
+    }
+
+    /// endereço de `nome[i]`, com verificação de limite se `i` não é constante
+    fn element(&mut self, name: &str, index: &'p Expr) -> u32 {
+        let (g, size, _) = self.statics[name];
+        let i = self.expr(index);
+        if let Some(&c) = self.consts.get(&i) {
+            if !(0..size).contains(&c) && self.err.is_none() {
+                self.err = Some(format!("índice {c} fora de '{name}' ([word; {size}]), conhecido na compilação"));
+            }
+        } else {
+            let z = self.konst(0);
+            let lo = self.bin(BinK::Lt, i, z);
+            self.trap_if(lo);
+            let n = self.konst(size);
+            let hi = self.bin(BinK::Ge, i, n);
+            self.trap_if(hi);
+        }
+        let base = self.val(Op::Global, 0, g, 0);
+        self.val(Op::PtrAdd, 0, base, i)
     }
 
     fn func(&mut self, f: &'p super::parse::Fn, sig: u32) {
@@ -161,7 +226,7 @@ impl<'p> L<'p> {
                 match s {
                     Stmt::Let { name, .. } => shadow.push(name.as_str()),
                     Stmt::Assign { name, .. } if !shadow.contains(&name.as_str()) => {
-                        out.insert(l.lookup(name));
+                        out.extend(l.lookup(name)); // static não é variável do ambiente
                     }
                     Stmt::If { then, els, .. } => {
                         scan(l, &then.stmts, shadow, out);
@@ -224,8 +289,19 @@ impl<'p> L<'p> {
             }
             Stmt::Assign { name, value, .. } => {
                 let v = self.expr(value);
-                let i = self.lookup(name);
-                self.env[i].1 = v;
+                match self.lookup(name) {
+                    Some(i) => self.env[i].1 = v,
+                    None => {
+                        let p = self.val(Op::Global, 0, self.statics[name.as_str()].0, 0);
+                        self.emit(Inst { op: Op::Store, a: p, b: v, ..Inst::new(Op::Store) });
+                    }
+                }
+            }
+            Stmt::Store { name, index, value, .. } => {
+                // como em Rust: o valor atribuído é avaliado antes do lugar
+                let v = self.expr(value);
+                let p = self.element(name, index);
+                self.emit(Inst { op: Op::Store, a: p, b: v, ..Inst::new(Op::Store) });
             }
             Stmt::If { cond, then, els } => {
                 let c = self.expr(cond);
@@ -316,7 +392,17 @@ impl<'p> L<'p> {
     fn expr(&mut self, e: &'p Expr) -> u32 {
         match e {
             Expr::Num(v) => self.konst(*v),
-            Expr::Var(name, ..) => self.env[self.lookup(name)].1,
+            Expr::Var(name, ..) => match self.lookup(name) {
+                Some(i) => self.env[i].1,
+                None => {
+                    let p = self.val(Op::Global, 0, self.statics[name.as_str()].0, 0);
+                    self.val(Op::Load, 0, p, 0)
+                }
+            },
+            Expr::Index(name, i, ..) => {
+                let p = self.element(name, i);
+                self.val(Op::Load, 0, p, 0)
+            }
             Expr::Unary(op, x) => {
                 let x = self.expr(x);
                 let k = match op {
@@ -370,10 +456,23 @@ impl<'p> L<'p> {
                 self.bin(k, a, b)
             }
             Expr::Call(name, args, ..) => {
+                // o CSR é parte da instrução (literal), não um operando
+                let (csr, args) = match (name.starts_with("csr_"), &args[..]) {
+                    (true, [Expr::Num(c), rest @ ..]) => (*c as u32, rest),
+                    _ => (0, &args[..]),
+                };
                 // argumentos da esquerda para a direita, como em Rust
                 let xs: Vec<u32> = args.iter().map(|a| self.expr(a)).collect();
                 let intr = match name.as_str() {
                     "sign" => return self.val(Op::Un, UnK::Sgn as u8, xs[0], 0),
+                    "shift" => return self.bin(BinK::Sh, xs[0], xs[1]),
+                    "csr_read" => IntrK::CsrRead,
+                    "csr_write" => IntrK::CsrWrite,
+                    "csr_swap" => IntrK::CsrSwap,
+                    "wfi" => IntrK::Wfi,
+                    "tlbi" => IntrK::Tlbi,
+                    "phys_read" => IntrK::PhysRead,
+                    "phys_write" => IntrK::PhysWrite,
                     "putc" => IntrK::Putc,
                     "putdec" => IntrK::Putdec,
                     "yield" => IntrK::Yield,
@@ -392,11 +491,11 @@ impl<'p> L<'p> {
                 let n = xs.len() as u16;
                 if super::ir::INTRS[intr as usize].2 {
                     let res = self.vals(1);
-                    self.emit(Inst { op: Op::Intr, k: intr as u8, n, res, a: 0, b });
+                    self.emit(Inst { op: Op::Intr, k: intr as u8, n, res, a: csr, b });
                     res
                 } else {
-                    // putc/putdec não têm resultado; como expressão valem 0
-                    self.emit(Inst { op: Op::Intr, k: intr as u8, n, res: 0, a: 0, b });
+                    // sem resultado (putc, csr_write, ...): como expressão valem 0
+                    self.emit(Inst { op: Op::Intr, k: intr as u8, n, res: 0, a: csr, b });
                     self.konst(0)
                 }
             }
