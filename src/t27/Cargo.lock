@@ -5,10 +5,3 @@ version = 4
 [[package]]
 name = "tenerura-t27"
 version = "0.1.0"
-dependencies = [
- "tenerura-trits",
-]
-
-[[package]]
-name = "tenerura-trits"
-version = "0.1.0"
