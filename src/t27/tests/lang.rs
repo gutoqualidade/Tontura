@@ -10,21 +10,36 @@ use common::*;
 
 use tenerura_t27::lang;
 
+type Compiler = fn(&str) -> Result<String, lang::Diag>;
+
+/// Os dois geradores: máquina de pilha direto da AST, e via TIR (docs/13).
+/// Todo programa executável roda nos dois e o resultado tem de ser igual.
+const BACKENDS: [(&str, Compiler); 2] = [("pilha", lang::compile), ("tir", lang::compile_tir)];
+
 /// Compila e monta; devolve o programa de usuário.
-fn build(src: &str) -> Result<tenerura_t27::asm::Program, String> {
-    let tas = lang::compile(src).map_err(|d| format!("{d}"))?;
+fn build_with(c: Compiler, src: &str) -> Result<tenerura_t27::asm::Program, String> {
+    let tas = c(src).map_err(|d| format!("{d}"))?;
     tenerura_t27::asm::assemble_str(&tas, "gerado", Some(&os_dir().join("user")))
         .map_err(|e| format!("montagem: {e}\n--- .tas ---\n{tas}"))
 }
 
-/// Roda um programa sozinho, com console, e devolve (saída, código).
-fn run_with(src: &str, caps: impl FnOnce(tenerura_t27::sysimage::TaskSpec) -> tenerura_t27::sysimage::TaskSpec) -> (String, i64) {
-    let prog = build(src).unwrap_or_else(|e| panic!("{e}"));
-    let mut s = boot_k(&kernel(), vec![caps(task("p", prog)).con()], 0, None).unwrap();
-    let dead = s.k("ST_DEAD");
-    run_checked(&mut s, 400_000, 64, |s| s.task("p").state == dead)
-        .unwrap_or_else(|e| panic!("{e}"));
-    (s.m.console_text(), s.task("p").exit)
+/// Roda um programa sozinho, com console, nos dois geradores; confere que
+/// concordam e devolve (saída, código).
+fn run_with(src: &str, caps: impl Fn(tenerura_t27::sysimage::TaskSpec) -> tenerura_t27::sysimage::TaskSpec) -> (String, i64) {
+    let mut seen = Vec::new();
+    for (name, c) in BACKENDS {
+        let prog = build_with(c, src).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let mut s = boot_k(&kernel(), vec![caps(task("p", prog)).con()], 0, None).unwrap();
+        let dead = s.k("ST_DEAD");
+        run_checked(&mut s, 400_000, 64, |s| s.task("p").state == dead)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        seen.push((s.m.console_text(), s.task("p").exit, s.m.stats.instr_user));
+    }
+    let ((out, code, pilha), (out2, code2, tir)) = (seen[0].clone(), seen[1].clone());
+    assert_eq!((&out, code), (&out2, code2), "os geradores divergem");
+    eprintln!("instruções de usuário: pilha {pilha}, tir {tir}");
+    assert!(tir <= pilha, "o TIR gerou código mais lento: {tir} > {pilha}");
+    (out, code)
 }
 
 fn run(src: &str) -> (String, i64) {
@@ -145,20 +160,23 @@ fn ping_em_t27r_fala_com_o_servidor_em_assembly() {
     // o exemplo do repositório: cliente escrito na linguagem, servidor em
     // assembly, protocolo (op=1, valor=i) -> i+1, n=10, soma = 65.
     let src = std::fs::read_to_string(os_dir().join("user/pingr.t27r")).expect("pingr.t27r");
-    let prog = build(&src).unwrap_or_else(|e| panic!("{e}"));
-    let mut s = boot_k(
-        &kernel(),
-        vec![task("ping", prog).send(0, 1, 7).con(), task("pong", user("pong")).recv(0, 1)],
-        0,
-        None,
-    )
-    .unwrap();
-    let dead = s.k("ST_DEAD");
-    run_checked(&mut s, 400_000, 64, |s| s.task("ping").state == dead && s.task("pong").state == dead)
-        .unwrap_or_else(|e| panic!("{e}"));
-    assert_eq!(s.m.console_text(), "ping: soma=65\n");
-    assert_eq!(s.task("ping").exit, 0);
-    assert_eq!(s.task("pong").exit, 0);
+    for (name, c) in BACKENDS {
+        let prog = build_with(c, &src).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let mut s = boot_k(
+            &kernel(),
+            vec![task("ping", prog).send(0, 1, 7).con(), task("pong", user("pong")).recv(0, 1)],
+            0,
+            None,
+        )
+        .unwrap();
+        let dead = s.k("ST_DEAD");
+        run_checked(&mut s, 400_000, 64, |s| s.task("ping").state == dead && s.task("pong").state == dead)
+            .unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(s.m.console_text(), "ping: soma=65\n", "{name}");
+        assert_eq!(s.task("ping").exit, 0, "{name}");
+        assert_eq!(s.task("pong").exit, 0, "{name}");
+        eprintln!("{name}: {} passos, {} instruções de usuário", s.m.stats.instr_user + s.m.stats.instr_kernel, s.m.stats.instr_user);
+    }
 }
 
 #[test]
@@ -176,8 +194,9 @@ fn servidor_em_t27r_recebe_de_cliente_em_assembly() {
         }
         return soma;
     }";
-    let servidor = build(src).unwrap_or_else(|e| panic!("{e}"));
-    let cliente = prog(
+    for (name, c) in BACKENDS {
+        let servidor = build_with(c, src).unwrap_or_else(|e| panic!("{name}: {e}"));
+        let cliente = prog(
         "    li a1, SYS_SEND
     li a2, 0
     li a3, 41
@@ -195,19 +214,20 @@ fn servidor_em_t27r_recebe_de_cliente_em_assembly() {
 fail:
     li a2, 1
     j exit",
-    );
-    let mut s = boot_k(
-        &kernel(),
-        vec![task("srv", servidor).recv(0, 1), task("cli", cliente).send(0, 1, 0)],
-        0,
-        None,
-    )
-    .unwrap();
-    let dead = s.k("ST_DEAD");
-    run_checked(&mut s, 400_000, 64, |s| s.task("srv").state == dead && s.task("cli").state == dead)
-        .unwrap_or_else(|e| panic!("{e}"));
-    assert_eq!(s.task("srv").exit, 41);
-    assert_eq!(s.task("cli").exit, 0);
+        );
+        let mut s = boot_k(
+            &kernel(),
+            vec![task("srv", servidor).recv(0, 1), task("cli", cliente).send(0, 1, 0)],
+            0,
+            None,
+        )
+        .unwrap();
+        let dead = s.k("ST_DEAD");
+        run_checked(&mut s, 400_000, 64, |s| s.task("srv").state == dead && s.task("cli").state == dead)
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(s.task("srv").exit, 41, "{name}");
+        assert_eq!(s.task("cli").exit, 0, "{name}");
+    }
 }
 
 #[test]

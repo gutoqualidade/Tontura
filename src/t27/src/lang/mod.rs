@@ -16,7 +16,10 @@
 
 pub mod check;
 pub mod gen;
+pub mod ir;
+pub mod irgen;
 pub mod lex;
+pub mod lower;
 pub mod parse;
 
 pub struct Diag {
@@ -38,11 +41,29 @@ impl std::fmt::Display for Diag {
 /// Compila fonte `.t27r` para texto de assembly T27 (pronto para
 /// `t27 asm`, com os `.include` resolvidos em `src/os/user`).
 pub fn compile(src: &str) -> Result<String, Diag> {
+    Ok(gen::generate(&front(src)?))
+}
+
+/// Fonte → programa aceito pela checagem.
+pub fn front(src: &str) -> Result<parse::Program, Diag> {
     let toks = lex::lex(src).map_err(|e| Diag { line: e.line, col: e.col, msg: e.msg })?;
     let mut p = parse::Parser::new(toks);
     let prog = p
         .program()
         .map_err(|e| Diag { line: e.line, col: e.col, msg: e.msg })?;
     check::check(&prog).map_err(|e| Diag { line: e.line, col: e.col, msg: e.msg })?;
-    Ok(gen::generate(&prog))
+    Ok(prog)
+}
+
+/// Fonte → TIR validado (docs/13).
+pub fn to_ir(src: &str) -> Result<ir::Module, Diag> {
+    let m = lower::lower(&front(src)?);
+    // o lower só produz TIR válido; se não, é defeito do compilador
+    ir::validate(&m, 1).map_err(|e| Diag { line: 0, col: 0, msg: format!("TIR inválido (defeito do t27r): {e}") })?;
+    Ok(m)
+}
+
+/// Como `compile`, passando pelo TIR e pelo gerador `irgen`.
+pub fn compile_tir(src: &str) -> Result<String, Diag> {
+    irgen::generate(&to_ir(src)?, 1).map_err(|msg| Diag { line: 0, col: 0, msg })
 }

@@ -5,6 +5,10 @@
 //!   t27r programa.t27r -o saida.tas
 //!   t27r -                        → lê a entrada padrão, escreve na saída
 //!
+//!   t27r programa.t27r --tir      → mesmo .tas, gerado via TIR (docs/13)
+//!   t27r programa.t27r --emit-ir  → texto do TIR (só leitura humana)
+//!   t27r programa.t27r --emit-tir → binário .tir (o formato canônico)
+//!
 //! O `.tas` gerado inclui `../lib/abi.inc` e `../lib/ulib.inc`: coloque-o
 //! em `src/os/user/` (ou em qualquer diretório com `../lib`).
 
@@ -16,6 +20,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut input: Option<String> = None;
     let mut output: Option<String> = None;
+    let mut mode = "tas";
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
@@ -29,8 +34,9 @@ fn main() -> ExitCode {
                     }
                 }
             }
+            "--tir" | "--emit-ir" | "--emit-tir" => mode = &args[i][2..],
             "-h" | "--help" => {
-                println!("uso: t27r <programa.t27r | -> [-o saida.tas]");
+                println!("uso: t27r <programa.t27r | -> [-o saida] [--tir | --emit-ir | --emit-tir]");
                 return ExitCode::SUCCESS;
             }
             other => {
@@ -63,17 +69,26 @@ fn main() -> ExitCode {
             }
         }
     };
-    match lang::compile(&src) {
+    let (result, ext) = match mode {
+        "tir" => (lang::compile_tir(&src).map(String::into_bytes), ".tas"),
+        "emit-ir" => (lang::to_ir(&src).map(|m| lang::ir::print(&m).into_bytes()), ".tir.txt"),
+        "emit-tir" => (lang::to_ir(&src).map(|m| m.encode()), ".tir"),
+        _ => (lang::compile(&src).map(String::into_bytes), ".tas"),
+    };
+    match result {
         Ok(tas) => {
             let out = output.unwrap_or_else(|| {
                 if input == "-" {
                     "-".into()
                 } else {
-                    input.trim_end_matches(".t27r").to_string() + ".tas"
+                    input.trim_end_matches(".t27r").to_string() + ext
                 }
             });
             if out == "-" {
-                print!("{tas}");
+                if let Err(e) = std::io::Write::write_all(&mut std::io::stdout(), &tas) {
+                    eprintln!("t27r: não escrevi a saída padrão: {e}");
+                    return ExitCode::from(1);
+                }
             } else if let Err(e) = std::fs::write(&out, tas) {
                 eprintln!("t27r: não escrevi {out}: {e}");
                 return ExitCode::from(1);

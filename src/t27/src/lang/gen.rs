@@ -27,7 +27,7 @@ use std::collections::HashMap;
 use super::parse::{Arm, BinOp, Block, Expr, Fn, Pat, Program, Stmt, UnOp};
 use crate::isa::IMM16_MAX;
 
-const HEADER: &str = "\
+pub(super) const HEADER: &str = "\
 ; ────────────────────────────────────────────────────────────
 ; gerado por t27r (subconjunto de Rust para T27) — não editar
 ; ────────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ _start:
     j exit
 ";
 
-const FOOTER: &str = "\
+pub(super) const FOOTER: &str = "\
     .text
     .include \"../lib/ulib.inc\"
 ";
