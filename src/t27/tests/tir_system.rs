@@ -295,28 +295,31 @@ impl Fz {
         self.rng.range(0, n as i64 - 1) as usize
     }
 
+    fn leaf(&mut self) -> String {
+        match self.pick(4) {
+            0 if !self.vars.is_empty() => {
+                let i = self.pick(self.vars.len());
+                self.vars[i].0.clone()
+            }
+            1 => format!("{}", self.rng.range(-3_000_000_000_000, 3_000_000_000_000)),
+            _ => format!("{}", self.rng.range(-20, 20)),
+        }
+    }
+
+    /// expressão `word` (um `trit` entra alargado, docs/18 §4.1)
     fn expr(&mut self, d: u32) -> String {
         let r = self.rng.range(0, 99);
         if d == 0 || r < 30 {
-            return match self.pick(4) {
-                0 if !self.vars.is_empty() => {
-                    let i = self.pick(self.vars.len());
-                    self.vars[i].0.clone()
-                }
-                1 => format!("{}", self.rng.range(-3_000_000_000_000, 3_000_000_000_000)),
-                _ => format!("{}", self.rng.range(-20, 20)),
-            };
+            return self.leaf();
         }
-        let ops = ["+", "-", "*", "/", "%", "==", "!=", "<", "<=", ">", ">=", "&&", "||"];
         match r {
-            30..=69 => {
-                let op = ops[self.pick(ops.len())];
+            30..=59 => {
+                let op = ["+", "-", "*", "/", "%"][self.pick(5)];
                 format!("({} {op} {})", self.expr(d - 1), self.expr(d - 1))
             }
-            70..=77 => format!("-{}", self.expr(d - 1)),
-            78..=83 => format!("!{}", self.expr(d - 1)),
-            84..=88 => format!("sign({})", self.expr(d - 1)),
-            89..=92 => format!("shift({}, {})", self.expr(d - 1), self.rng.range(-30, 30)),
+            60..=67 => format!("-{}", self.expr(d - 1)),
+            68..=81 => self.trit(d - 1),
+            82..=88 => format!("shift({}, {})", self.expr(d - 1), self.rng.range(-30, 30)),
             _ if !self.fns.is_empty() => {
                 let i = self.pick(self.fns.len());
                 let (f, n) = self.fns[i].clone();
@@ -324,6 +327,44 @@ impl Fz {
                 format!("{f}({})", args.join(", "))
             }
             _ => self.expr(d - 1),
+        }
+    }
+
+    /// expressão `trit`: `sign`, `<=>`, Kleene (`&` = kmin, `|` = kmax), negação
+    fn trit(&mut self, d: u32) -> String {
+        let r = self.rng.range(0, 99);
+        if d == 0 || r < 25 {
+            return format!("sign({})", self.leaf());
+        }
+        match r {
+            25..=49 => format!("({} <=> {})", self.expr(d - 1), self.expr(d - 1)),
+            50..=74 => {
+                let op = ["&", "|"][self.pick(2)];
+                let lado = if self.pick(3) == 0 { format!("{}", self.rng.range(-1, 1)) } else { self.trit(d - 1) };
+                format!("({} {op} {lado})", self.trit(d - 1))
+            }
+            75..=87 => format!("-{}", self.trit(d - 1)),
+            _ => format!("sign({})", self.expr(d - 1)),
+        }
+    }
+
+    /// expressão `bool`: a única que serve de condição
+    fn cond(&mut self, d: u32) -> String {
+        let r = self.rng.range(0, 99);
+        if d == 0 || r < 40 {
+            let op = ["==", "!=", "<", "<=", ">", ">="][self.pick(6)];
+            let d1 = d.saturating_sub(1);
+            return format!("({} {op} {})", self.expr(d1), self.expr(d1));
+        }
+        match r {
+            40..=54 => format!("({} && {})", self.cond(d - 1), self.cond(d - 1)),
+            55..=69 => format!("({} || {})", self.cond(d - 1), self.cond(d - 1)),
+            70..=79 => format!("!{}", self.cond(d - 1)),
+            80..=89 => {
+                let op = ["&", "|"][self.pick(2)];
+                format!("({} {op} {})", self.cond(d - 1), self.cond(d - 1))
+            }
+            _ => format!("({} == {})", self.trit(d - 1), self.trit(d - 1)),
         }
     }
 
@@ -341,7 +382,8 @@ impl Fz {
             0..=24 => {
                 self.nv += 1;
                 let (name, m) = (format!("v{}", self.nv), self.rng.range(0, 1) == 1);
-                *out += &format!("let {}{name} = {};\n", if m { "mut " } else { "" }, self.expr(3));
+                // anotado: um `trit` no topo da expressão não pode tipar a variável
+                *out += &format!("let {}{name}: word = {};\n", if m { "mut " } else { "" }, self.expr(3));
                 self.vars.push((name, m));
             }
             25..=44 if !muts.is_empty() => {
@@ -349,15 +391,26 @@ impl Fz {
                 *out += &format!("{v} = {};\n", self.expr(3));
             }
             45..=59 if d > 0 => {
-                *out += &format!("if {} {{\n", self.expr(2));
+                *out += &format!("if {} {{\n", self.cond(2));
                 self.block(d - 1, out);
                 *out += "} else {\n";
                 self.block(d - 1, out);
                 *out += "}\n";
             }
-            60..=69 if d > 0 => {
+            60..=63 if d > 0 => {
+                // match de trit exaustivo, sem `_`
+                *out += &format!("match {} {{\n", self.trit(2));
+                for v in [-1, 0, 1] {
+                    *out += &format!("{v} => {{\n");
+                    self.block(d - 1, out);
+                    *out += "}\n";
+                }
+                *out += "}\n";
+            }
+            64..=69 if d > 0 => {
                 let (a, b) = (self.rng.range(-2, 2), self.rng.range(3, 9));
-                *out += &format!("match {} {{\n{a} => {{\n", self.expr(2));
+                // `+ 0`: o escrutínio é word mesmo quando a expressão é trit
+                *out += &format!("match ({} + 0) {{\n{a} => {{\n", self.expr(2));
                 self.block(d - 1, out);
                 *out += &format!("}}\n{b} | {} => {{\n", b + 1);
                 self.block(d - 1, out);
@@ -373,7 +426,7 @@ impl Fz {
                 self.block(d - 1, out);
                 *out += &format!("{c} = {c} + 1;\n}}\n");
             }
-            80..=84 if d > 0 => *out += &format!("if {} {{ return {}; }}\n", self.expr(2), self.expr(2)),
+            80..=84 if d > 0 => *out += &format!("if {} {{ return {}; }}\n", self.cond(2), self.expr(2)),
             _ => *out += &format!("putdec({});\nputc(32);\n", self.expr(3)),
         }
     }

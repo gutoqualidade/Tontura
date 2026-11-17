@@ -18,7 +18,7 @@
 use std::fmt::Write;
 
 use super::gen::{FOOTER, HEADER};
-use super::ir::{par_map, BinK, Inst, IntrK, Module, Op, UnK, BIN_NAMES, NO_ENTRY};
+use super::ir::{par_map, BinK, Inst, IntrK, Module, Op, UnK, BIN_NAMES, INTRS, NO_ENTRY};
 use crate::isa::csr;
 use crate::isa::IMM16_MAX;
 
@@ -122,13 +122,8 @@ impl<'m> G<'m> {
         }
         // palavra de quadro só para o que é guardado (não fundido): constante não tem,
         // argumento de laço usa a do resultado; depois vêm as áreas de slot
-        let mut frame = 0;
-        for v in 0..nv {
-            if g.konst[v].is_none() && alias[v].is_none() && g.fused[v].is_none() {
-                g.slot[v] = frame;
-                frame += 1;
-            }
-        }
+        let keep: Vec<bool> = (0..nv).map(|v| g.konst[v].is_none() && alias[v].is_none() && g.fused[v].is_none()).collect();
+        let mut frame = g.place(f.rfirst, 0, &keep);
         for v in 0..nv {
             if let Some(r) = alias[v] {
                 g.slot[v] = g.slot[r as usize];
@@ -156,6 +151,53 @@ impl<'m> G<'m> {
         g.line("    pop lr");
         g.line("    ret");
         Ok(g.out)
+    }
+
+    /// Palavras de quadro por escopo: um valor só existe até o fim da região
+    /// que o define (docs/13 §C.2), então ramos irmãos e as regiões de um laço
+    /// recomeçam na mesma palavra e o quadro é o caminho mais fundo da árvore
+    /// de regiões, não a soma. Devolve quantas palavras a subárvore usa.
+    fn place(&mut self, r: u32, mut next: u32, keep: &[bool]) -> u32 {
+        let m = self.m;
+        let reg = m.regions[r as usize];
+        let put = |g: &mut Self, v: u32, next: &mut u32| {
+            if keep[v as usize] {
+                g.slot[v as usize] = *next;
+                *next += 1;
+            }
+        };
+        for v in reg.args..reg.args + reg.nargs {
+            put(self, v, &mut next);
+        }
+        let mut top = next;
+        for idx in reg.first..reg.first + reg.len {
+            let i = m.insts[idx as usize];
+            let nres = match i.op {
+                Op::If | Op::Switch | Op::While => i.n as u32,
+                Op::Call => m.sig(i.a as usize).1.len() as u32,
+                Op::Intr => INTRS[i.k as usize].2 as u32,
+                Op::Store | Op::Yield | Op::Cond | Op::Return | Op::Exit | Op::Trap => 0,
+                _ => 1,
+            };
+            for v in i.res..i.res + nres {
+                put(self, v, &mut next);
+            }
+            let kids: Vec<u32> = match i.op {
+                Op::If | Op::While => m.list(i.b, 2).to_vec(),
+                Op::Switch => {
+                    let h = m.list(i.b, 3);
+                    let (nc, na) = (h[0] as usize, h[1] as usize);
+                    let x = m.list(i.b, 3 + 3 * nc + na);
+                    std::iter::once(x[2]).chain(x[3 + 3 * nc..].iter().copied()).collect()
+                }
+                _ => Vec::new(),
+            };
+            for k in kids {
+                top = top.max(self.place(k, next, keep));
+            }
+            top = top.max(next);
+        }
+        top
     }
 
     fn line(&mut self, s: &str) {
@@ -248,7 +290,7 @@ impl<'m> G<'m> {
                     self.get("t1", i.a);
                     self.get("t2", i.b);
                     let name = BIN_NAMES[i.k as usize];
-                    if i.k <= 4 || i.k == BinK::Sh as u8 {
+                    if i.k <= 4 || i.k >= BinK::Sh as u8 {
                         l!(self, "    {name} a1, t1, t2");
                     } else {
                         // cmp devolve o sinal de (t1 − t2); pula o "1" quando falso

@@ -3,6 +3,9 @@
 //! Só o que o subconjunto usa: identificadores, literais decimais,
 //! palavras-chave, pontuação e os operadores. Comentários `//` até o fim
 //! da linha. Nada de strings, floats, macros nem atributos.
+//!
+//! As palavras-chave da linguagem completa (docs/18 §3) já são reservadas:
+//! um programa de hoje não pode usá-las como nome e quebrar amanhã.
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Tok {
@@ -21,6 +24,10 @@ pub enum Tok {
     False,
     Word,
     Static,
+    Bool,
+    Trit,
+    /// palavra-chave da linguagem completa ainda sem uso (docs/18 §3)
+    Reserved(String),
     // pontuação
     Arrow,
     FatArrow,
@@ -48,6 +55,9 @@ pub enum Tok {
     AndAnd,
     OrOr,
     Pipe,
+    Amp,
+    /// `<=>`: comparação de três vias (instrução `cmp`)
+    Ship,
     Bang,
     Assign,
     Underscore,
@@ -121,7 +131,12 @@ pub fn lex(src: &str) -> Result<Vec<Token>, LexError> {
                 "false" => Tok::False,
                 "word" => Tok::Word,
                 "static" => Tok::Static,
+                "bool" => Tok::Bool,
+                "trit" => Tok::Trit,
                 "_" => Tok::Underscore,
+                "struct" | "enum" | "impl" | "trait" | "pub" | "mod" | "use" | "const" | "unsafe" | "loop"
+                | "for" | "in" | "break" | "continue" | "defer" | "become" | "as" | "type" | "packed"
+                | "naked" | "protocol" | "never" | "self" | "Self" => Tok::Reserved(s),
                 _ => Tok::Ident(s),
             };
             out.push(Token { tok, line: l0, col: c0 });
@@ -142,7 +157,9 @@ pub fn lex(src: &str) -> Result<Vec<Token>, LexError> {
         }
         // operadores e pontuação (dois caracteres primeiro)
         let two = |a: char, b: char| c == a && chars.get(i + 1) == Some(&b);
-        let (tok, len) = if two('-', '>') {
+        let (tok, len) = if two('<', '=') && chars.get(i + 2) == Some(&'>') {
+            (Tok::Ship, 3)
+        } else if two('-', '>') {
             (Tok::Arrow, 2)
         } else if two('=', '>') {
             (Tok::FatArrow, 2)
@@ -179,6 +196,7 @@ pub fn lex(src: &str) -> Result<Vec<Token>, LexError> {
                 '!' => Tok::Bang,
                 '=' => Tok::Assign,
                 '|' => Tok::Pipe,
+                '&' => Tok::Amp,
                 _ => return Err(err(l0, c0, format!("caractere inesperado: {c:?}"))),
             };
             (t, 1)

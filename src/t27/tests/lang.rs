@@ -111,7 +111,8 @@ fn precedencia_comparacoes_e_logica() {
             if 10 % 3 == 1 { r = r + 1; }
             if 2 - 3 - 4 == 0 - 5 { r = r + 1; }
             if (1 < 2) && (2 <= 2) && !(3 > 4) { r = r + 1; }
-            if (0 || 7) && !0 { r = r + 1; }
+            // docs/18 §4.2: palavra não é condição; a comparação é explícita
+            if (0 != 0 || 7 != 0) && !(0 != 0) { r = r + 1; }
             return r;
         }",
     );
@@ -313,4 +314,98 @@ fn o_programa_gerado_nao_quebra_invariante_do_nucleo() {
     );
     assert_eq!(out, "0 1 1 2 3 5 8 13 21 34 ");
     assert_eq!(code, 55);
+}
+
+#[test]
+fn tres_vias_e_match_exaustivo_de_trit() {
+    // `<=>` é uma instrução (cmp) e devolve trit; `match` sobre trit cobre
+    // −1, 0 e 1 sem `_`; bool e trit atravessam parâmetros e retornos
+    let (out, code) = run(
+        "fn classe(x: word, y: word) -> trit { return x <=> y; }
+        fn peso(t: trit) -> word {
+            match t {
+                -1 => { return 100; }
+                0 => { return 20; }
+                1 => { return 3; }
+            }
+            return 0;
+        }
+        fn par(x: word) -> bool { return x % 2 == 0; }
+        fn conta(b: bool, n: word) -> word { if b { return n + 1; } return n; }
+        fn main() -> word {
+            putdec(peso(classe(1, 2)) + peso(classe(5, 5)) + peso(classe(9, -9)));
+            let mut n = 0;
+            let mut i = 0;
+            while i < 10 { n = conta(par(i), n); i = i + 1; }
+            let t: trit = -1;
+            return n + peso(t) + peso(sign(-7) <=> 0);
+        }",
+    );
+    assert_eq!(out, "123");
+    assert_eq!(code, 5 + 100 + 100);
+}
+
+#[test]
+fn logica_de_kleene_com_kmin_e_kmax() {
+    // tabela inteira: & = mínimo, | = máximo, e De Morgan com a negação
+    // exata; em bool, & e | são E/OU sem curto-circuito
+    let code = exit_of(
+        "fn menor(x: word, y: word) -> word { if x < y { return x; } return y; }
+        fn maior(x: word, y: word) -> word { if x > y { return x; } return y; }
+        fn main() -> word {
+            let mut ok = 0;
+            let mut i = -1;
+            while i <= 1 {
+                let mut j = -1;
+                while j <= 1 {
+                    let a = sign(i);
+                    let b = sign(j);
+                    if (a & b) == menor(i, j) { ok = ok + 1; }
+                    if (a | b) == maior(i, j) { ok = ok + 1; }
+                    if -(a & b) == (-a | -b) { ok = ok + 1; }
+                    j = j + 1;
+                }
+                i = i + 1;
+            }
+            if (1 < 2) & !(3 < 2) { ok = ok + 100; }
+            if (1 > 2) | (2 > 1) { ok = ok + 100; }
+            return ok;
+        }",
+    );
+    assert_eq!(code, 27 + 200);
+}
+
+#[test]
+fn funcao_sem_valor_de_retorno() {
+    let (out, code) = run(
+        "fn linha(x: word) { putdec(x); putc(10); }
+        fn talvez(x: word) { if x < 0 { return; } linha(x); }
+        fn main() -> word { linha(7); talvez(-3); talvez(4); return 0; }",
+    );
+    assert_eq!(out, "7\n4\n");
+    assert_eq!(code, 0);
+}
+
+#[test]
+fn tipos_errados_sao_recusados() {
+    for (src, msg) in [
+        ("fn main() -> word { let x = 7; if x { return 1; } return 0; }", "a condição tem de ser bool"),
+        ("fn main() -> word { while 1 { } return 0; }", "a condição tem de ser bool"),
+        ("fn main() -> word { if !0 { return 1; } return 0; }", "'!' sobre word"),
+        ("fn main() -> word { let b = 1 < 2; return b + 1; }", "só números"),
+        ("fn main() -> word { let t: trit = 5; return t; }", "esperava trit, achei word"),
+        ("fn main() -> word { let x = 4; return x & 1; }", "só trit com trit"),
+        ("fn main() -> word { if 1 && 2 { return 1; } return 0; }", "só bool"),
+        ("fn main() -> word { match sign(3) { -1 => { } 0 => { } } return 0; }", "não exaustivo"),
+        ("fn main() -> word { match sign(3) { 2 => { } _ => { } } return 0; }", "impossível"),
+        ("fn f() { } fn main() -> word { return f(); }", "nada (função sem '->')"),
+        ("fn main() -> word { return; }", "falta o valor de retorno"),
+        ("fn f() { return 1; } fn main() -> word { return 0; }", "'return' sem valor"),
+        ("fn main() { }", "main devolve o código de saída"),
+        ("fn main() -> word { let loop = 1; return loop; }", "palavra reservada"),
+        ("fn f(b: bool) -> word { return 0; } fn main() -> word { return f(1); }", "esperava bool, achei word"),
+    ] {
+        let e = err_of(src);
+        assert!(e.contains(msg), "{src}\n→ {e}");
+    }
 }

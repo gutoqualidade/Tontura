@@ -4,12 +4,13 @@
 //!
 //! ```text
 //! programa   := item*
-//! item       := 'fn' ident '(' params? ')' ('->' 'word')? bloco
+//! item       := 'fn' ident '(' params? ')' ('->' tipo)? bloco
 //!             | 'static' 'mut' ident ':' ('word' | '[' 'word' ';' número ']') ';'
+//! tipo       := 'word' | 'bool' | 'trit'
 //! params     := param (',' param)*
-//! param      := ident ':' 'word'
+//! param      := ident ':' tipo
 //! bloco      := '{' comando* '}'
-//! comando    := 'let' 'mut'? ident (':' 'word')? '=' expr ';'
+//! comando    := 'let' 'mut'? ident (':' tipo)? '=' expr ';'
 //!             | ident '=' expr ';'
 //!             | ident '[' expr ']' '=' expr ';'
 //!             | 'if' expr bloco ('else' bloco)?
@@ -22,15 +23,39 @@
 //! expr       := or
 //! or         := and ('||' and)*
 //! and        := cmp ('&&' cmp)*
-//! cmp        := soma (('=='|'!='|'<'|'<='|'>'|'>=') soma)*
+//! cmp        := kou (('=='|'!='|'<'|'<='|'>'|'>=') kou)*
+//! kou        := ke ('|' ke)*                 Kleene: kmax
+//! ke         := tres ('&' tres)*             Kleene: kmin
+//! tres       := soma ('<=>' soma)?           cmp → trit
 //! soma       := termo (('+'|'-') termo)*
 //! termo      := unário (('*'|'/'|'%') unário)*
 //! unário     := ('-'|'!') unário | primário
 //! primário   := número | 'true' | 'false' | ident | ident '[' expr ']' | chamada | '(' expr ')'
 //! chamada    := ident '(' (expr (',' expr)*)? ')'
 //! ```
+//!
+//! Sem `->` a função não devolve valor (docs/18 §6). Tipos: docs/18 §4.2.
 
 use super::lex::{Tok, Token};
+
+/// Tipos da superfície (docs/18 §4.2). Todos ocupam uma palavra; no TIR
+/// viram `word`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Type {
+    Word,
+    Bool,
+    Trit,
+}
+
+impl Type {
+    pub fn name(self) -> &'static str {
+        match self {
+            Type::Word => "word",
+            Type::Bool => "bool",
+            Type::Trit => "trit",
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BinOp {
@@ -47,6 +72,12 @@ pub enum BinOp {
     Ge,
     And,
     Or,
+    /// `&`: mínimo trit a trit (∧ de Kleene; E sem desvio em bool)
+    Kmin,
+    /// `|`: máximo trit a trit (∨ de Kleene)
+    Kmax,
+    /// `<=>`: sinal de a − b, um trit
+    Cmp,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,22 +89,24 @@ pub enum UnOp {
 #[derive(Debug)]
 pub enum Expr {
     Num(i64),
+    Bool(bool),
     Var(String, usize, usize),
     Call(String, Vec<Expr>, usize, usize),
     /// `nome[i]`: só sobre `static` de array
     Index(String, Box<Expr>, usize, usize),
-    Unary(UnOp, Box<Expr>),
-    Binary(BinOp, Box<Expr>, Box<Expr>),
+    /// operador, operando, linha e coluna do operador
+    Unary(UnOp, Box<Expr>, usize, usize),
+    Binary(BinOp, Box<Expr>, Box<Expr>, usize, usize),
 }
 
 #[derive(Debug)]
 pub enum Stmt {
-    Let { name: String, mutable: bool, init: Expr, line: usize, col: usize },
+    Let { name: String, mutable: bool, ty: Option<Type>, init: Expr, line: usize, col: usize },
     Assign { name: String, value: Expr, line: usize, col: usize },
     Store { name: String, index: Expr, value: Expr, line: usize, col: usize },
-    If { cond: Expr, then: Block, els: Option<Block> },
-    While { cond: Expr, body: Block },
-    Return { value: Option<Expr> },
+    If { cond: Expr, then: Block, els: Option<Block>, line: usize, col: usize },
+    While { cond: Expr, body: Block, line: usize, col: usize },
+    Return { value: Option<Expr>, line: usize, col: usize },
     Match { scrutinee: Expr, arms: Vec<Arm>, line: usize },
     Expr(Expr),
 }
@@ -99,6 +132,9 @@ pub struct Arm {
 pub struct Fn {
     pub name: String,
     pub params: Vec<String>,
+    pub ptys: Vec<Type>,
+    /// `None` = sem valor de retorno
+    pub ret: Option<Type>,
     pub body: Block,
     pub line: usize,
     pub col: usize,
@@ -189,8 +225,20 @@ impl Parser {
                 self.bump();
                 Ok(s)
             }
+            Tok::Reserved(s) => self.err(format!("'{s}' é palavra reservada (docs/18 §3)")),
             other => self.err(format!("esperava um nome, achei {other:?}")),
         }
+    }
+
+    fn ty(&mut self) -> R<Type> {
+        let t = match self.peek() {
+            Tok::Word => Type::Word,
+            Tok::Bool => Type::Bool,
+            Tok::Trit => Type::Trit,
+            other => return self.err(format!("esperava um tipo (word, bool, trit), achei {other:?}")),
+        };
+        self.bump();
+        Ok(t)
     }
 
     pub fn program(&mut self) -> R<Program> {
@@ -234,24 +282,21 @@ impl Parser {
         self.expect(&Tok::Fn, "'fn'")?;
         let name = self.ident()?;
         self.expect(&Tok::LParen, "'('")?;
-        let mut params = Vec::new();
+        let (mut params, mut ptys) = (Vec::new(), Vec::new());
         if self.peek() != &Tok::RParen {
             loop {
-                let p = self.ident()?;
+                params.push(self.ident()?);
                 self.expect(&Tok::Colon, "':'")?;
-                self.expect(&Tok::Word, "o tipo 'word'")?;
-                params.push(p);
+                ptys.push(self.ty()?);
                 if !self.eat(&Tok::Comma) {
                     break;
                 }
             }
         }
         self.expect(&Tok::RParen, "')'")?;
-        if self.eat(&Tok::Arrow) {
-            self.expect(&Tok::Word, "o tipo 'word'")?;
-        }
+        let ret = if self.eat(&Tok::Arrow) { Some(self.ty()?) } else { None };
         let body = self.block()?;
-        Ok(Fn { name, params, body, line, col })
+        Ok(Fn { name, params, ptys, ret, body, line, col })
     }
 
     fn block(&mut self) -> R<Block> {
@@ -274,15 +319,14 @@ impl Parser {
                 self.bump();
                 let mutable = self.eat(&Tok::Mut);
                 let name = self.ident()?;
-                if self.eat(&Tok::Colon) {
-                    self.expect(&Tok::Word, "o tipo 'word'")?;
-                }
+                let ty = if self.eat(&Tok::Colon) { Some(self.ty()?) } else { None };
                 self.expect(&Tok::Assign, "'='")?;
                 let init = self.expr()?;
                 self.expect(&Tok::Semi, "';'")?;
-                Ok(Stmt::Let { name, mutable, init, line, col })
+                Ok(Stmt::Let { name, mutable, ty, init, line, col })
             }
             Tok::If => {
+                let (line, col) = self.pos();
                 self.bump();
                 let cond = self.expr()?;
                 let then = self.block()?;
@@ -297,19 +341,21 @@ impl Parser {
                 } else {
                     None
                 };
-                Ok(Stmt::If { cond, then, els })
+                Ok(Stmt::If { cond, then, els, line, col })
             }
             Tok::While => {
+                let (line, col) = self.pos();
                 self.bump();
                 let cond = self.expr()?;
                 let body = self.block()?;
-                Ok(Stmt::While { cond, body })
+                Ok(Stmt::While { cond, body, line, col })
             }
             Tok::Return => {
+                let (line, col) = self.pos();
                 self.bump();
                 let value = if self.peek() == &Tok::Semi { None } else { Some(self.expr()?) };
                 self.expect(&Tok::Semi, "';'")?;
-                Ok(Stmt::Return { value })
+                Ok(Stmt::Return { value, line, col })
             }
             Tok::Match => {
                 let (line, _) = self.pos();
@@ -385,82 +431,69 @@ impl Parser {
         self.or()
     }
 
-    fn or(&mut self) -> R<Expr> {
-        let mut e = self.and()?;
-        while self.eat(&Tok::OrOr) {
-            let r = self.and()?;
-            e = Expr::Binary(BinOp::Or, Box::new(e), Box::new(r));
+    /// `operando (op operando)*` com operadores associativos à esquerda
+    fn left(&mut self, ops: &[(Tok, BinOp)], next: fn(&mut Self) -> R<Expr>) -> R<Expr> {
+        let mut e = next(self)?;
+        while let Some(&(_, op)) = ops.iter().find(|(t, _)| t == self.peek()) {
+            let (line, col) = self.pos();
+            self.bump();
+            let r = next(self)?;
+            e = Expr::Binary(op, Box::new(e), Box::new(r), line, col);
         }
         Ok(e)
+    }
+
+    fn or(&mut self) -> R<Expr> {
+        self.left(&[(Tok::OrOr, BinOp::Or)], Self::and)
     }
 
     fn and(&mut self) -> R<Expr> {
-        let mut e = self.cmp()?;
-        while self.eat(&Tok::AndAnd) {
-            let r = self.cmp()?;
-            e = Expr::Binary(BinOp::And, Box::new(e), Box::new(r));
+        self.left(&[(Tok::AndAnd, BinOp::And)], Self::cmp)
+    }
+
+    fn kor(&mut self) -> R<Expr> {
+        self.left(&[(Tok::Pipe, BinOp::Kmax)], Self::kand)
+    }
+
+    fn kand(&mut self) -> R<Expr> {
+        self.left(&[(Tok::Amp, BinOp::Kmin)], Self::ship)
+    }
+
+    /// `a <=> b` não se encadeia: `a <=> b <=> c` não tem leitura útil
+    fn ship(&mut self) -> R<Expr> {
+        let e = self.sum()?;
+        if self.peek() != &Tok::Ship {
+            return Ok(e);
         }
-        Ok(e)
+        let (line, col) = self.pos();
+        self.bump();
+        let r = self.sum()?;
+        Ok(Expr::Binary(BinOp::Cmp, Box::new(e), Box::new(r), line, col))
     }
 
     fn cmp(&mut self) -> R<Expr> {
-        let mut e = self.sum()?;
-        loop {
-            let op = match self.peek() {
-                Tok::EqEq => BinOp::Eq,
-                Tok::Ne => BinOp::Ne,
-                Tok::Lt => BinOp::Lt,
-                Tok::Le => BinOp::Le,
-                Tok::Gt => BinOp::Gt,
-                Tok::Ge => BinOp::Ge,
-                _ => break,
-            };
-            self.bump();
-            let r = self.sum()?;
-            e = Expr::Binary(op, Box::new(e), Box::new(r));
-        }
-        Ok(e)
+        use BinOp::*;
+        let ops = [(Tok::EqEq, Eq), (Tok::Ne, Ne), (Tok::Lt, Lt), (Tok::Le, Le), (Tok::Gt, Gt), (Tok::Ge, Ge)];
+        self.left(&ops, Self::kor)
     }
 
     fn sum(&mut self) -> R<Expr> {
-        let mut e = self.term()?;
-        loop {
-            let op = match self.peek() {
-                Tok::Plus => BinOp::Add,
-                Tok::Minus => BinOp::Sub,
-                _ => break,
-            };
-            self.bump();
-            let r = self.term()?;
-            e = Expr::Binary(op, Box::new(e), Box::new(r));
-        }
-        Ok(e)
+        self.left(&[(Tok::Plus, BinOp::Add), (Tok::Minus, BinOp::Sub)], Self::term)
     }
 
     fn term(&mut self) -> R<Expr> {
-        let mut e = self.unary()?;
-        loop {
-            let op = match self.peek() {
-                Tok::Star => BinOp::Mul,
-                Tok::Slash => BinOp::Div,
-                Tok::Percent => BinOp::Rem,
-                _ => break,
-            };
-            self.bump();
-            let r = self.unary()?;
-            e = Expr::Binary(op, Box::new(e), Box::new(r));
-        }
-        Ok(e)
+        self.left(&[(Tok::Star, BinOp::Mul), (Tok::Slash, BinOp::Div), (Tok::Percent, BinOp::Rem)], Self::unary)
     }
 
     fn unary(&mut self) -> R<Expr> {
-        if self.eat(&Tok::Minus) {
-            return Ok(Expr::Unary(UnOp::Neg, Box::new(self.unary()?)));
-        }
-        if self.eat(&Tok::Bang) {
-            return Ok(Expr::Unary(UnOp::Not, Box::new(self.unary()?)));
-        }
-        self.primary()
+        let (line, col) = self.pos();
+        let op = match self.peek() {
+            Tok::Minus => UnOp::Neg,
+            Tok::Bang => UnOp::Not,
+            _ => return self.primary(),
+        };
+        self.bump();
+        Ok(Expr::Unary(op, Box::new(self.unary()?), line, col))
     }
 
     fn primary(&mut self) -> R<Expr> {
@@ -471,11 +504,11 @@ impl Parser {
             }
             Tok::True => {
                 self.bump();
-                Ok(Expr::Num(1))
+                Ok(Expr::Bool(true))
             }
             Tok::False => {
                 self.bump();
-                Ok(Expr::Num(0))
+                Ok(Expr::Bool(false))
             }
             Tok::LParen => {
                 self.bump();
@@ -506,6 +539,7 @@ impl Parser {
                     Ok(Expr::Var(name, line, col))
                 }
             }
+            Tok::Reserved(s) => self.err(format!("'{s}' é palavra reservada (docs/18 §3)")),
             other => self.err(format!("esperava uma expressão, achei {other:?}")),
         }
     }

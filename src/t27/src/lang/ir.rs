@@ -147,9 +147,17 @@ pub enum BinK {
     Ge,
     /// deslocamento da ISA: k > 0 multiplica por 3ᵏ, k < 0 descarta |k| trits arredondando
     Sh,
+    /// mínimo trit a trit (∧ de Kleene; docs/18 §4.2)
+    Kmin,
+    /// máximo trit a trit (∨ de Kleene)
+    Kmax,
+    /// sinal de x − y, exato: −1 / 0 / +1 (o `cmp` da ISA)
+    Cmp,
 }
 
-pub const BIN_NAMES: [&str; 12] = ["add", "sub", "mul", "div", "rem", "eq", "ne", "lt", "le", "gt", "ge", "sh"];
+/// Nomes no texto do TIR — e, para `sh` e de `kmin` em diante, o mnemônico da ISA.
+pub const BIN_NAMES: [&str; 15] =
+    ["add", "sub", "mul", "div", "rem", "eq", "ne", "lt", "le", "gt", "ge", "sh", "kmin", "kmax", "cmp"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UnK {

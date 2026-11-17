@@ -29,6 +29,8 @@ struct Rb {
 struct L<'p> {
     m: Module,
     fids: HashMap<&'p str, u32>,
+    /// função → devolve valor (tem `->`)
+    rets: HashMap<&'p str, bool>,
     /// static → (índice do global, tamanho, é array)
     statics: HashMap<&'p str, (u32, i64, bool)>,
     regs: Vec<Rb>,
@@ -50,6 +52,7 @@ pub fn lower(p: &Program, mode: Mode) -> Result<Module, String> {
     let mut l = L {
         m: Module::default(),
         fids: p.fns.iter().enumerate().map(|(i, f)| (f.name.as_str(), i as u32)).collect(),
+        rets: p.fns.iter().map(|f| (f.name.as_str(), f.ret.is_some())).collect(),
         statics: p.statics.iter().enumerate().map(|(i, s)| (s.name.as_str(), (i as u32, s.size, s.array))).collect(),
         regs: Vec::new(),
         rfirst: 0,
@@ -64,8 +67,9 @@ pub fn lower(p: &Program, mode: Mode) -> Result<Module, String> {
         .fns
         .iter()
         .map(|f| {
-            let n = f.params.len() as u32;
-            l.list(&[n, 1].into_iter().chain((0..=n).map(|_| Ty::Word as u32)).collect::<Vec<_>>())
+            // bool e trit são palavras no TIR (docs/18 §11.3)
+            let (n, r) = (f.params.len() as u32, f.ret.is_some() as u32);
+            l.list(&[n, r].into_iter().chain((0..n + r).map(|_| Ty::Word as u32)).collect::<Vec<_>>())
         })
         .collect();
     for s in &p.statics {
@@ -184,8 +188,13 @@ impl<'p> L<'p> {
         }
         self.stmts(&f.body.stmts);
         if !self.regs[self.cur].done {
-            let z = self.konst(0);
-            self.emit(Inst { op: Op::Return, n: 1, a: z, ..Inst::new(Op::Return) });
+            if f.ret.is_some() {
+                // regra herdada: cair do fim de uma função com valor devolve 0
+                let z = self.konst(0);
+                self.emit(Inst { op: Op::Return, n: 1, a: z, ..Inst::new(Op::Return) });
+            } else {
+                self.emit(Inst::new(Op::Return));
+            }
         }
         let ifirst = self.m.insts.len() as u32;
         for r in self.regs.drain(..) {
@@ -303,7 +312,7 @@ impl<'p> L<'p> {
                 let p = self.element(name, index);
                 self.emit(Inst { op: Op::Store, a: p, b: v, ..Inst::new(Op::Store) });
             }
-            Stmt::If { cond, then, els } => {
+            Stmt::If { cond, then, els, .. } => {
                 let c = self.expr(cond);
                 let mut bs = vec![then];
                 bs.extend(els);
@@ -313,7 +322,7 @@ impl<'p> L<'p> {
                 let re = self.branch(els.as_ref(), &carried, &saved);
                 self.structured(Op::If, c, &[rt, re], &carried);
             }
-            Stmt::While { cond, body } => {
+            Stmt::While { cond, body, .. } => {
                 let carried = self.assigned(&[body]);
                 let n = carried.len() as u32;
                 let inits: Vec<u32> = carried.iter().map(|&i| self.env[i].1).collect();
@@ -333,21 +342,24 @@ impl<'p> L<'p> {
                 let head: Vec<u32> = [rc, rb].into_iter().chain(inits).collect();
                 self.structured(Op::While, 0, &head, &carried);
             }
-            Stmt::Return { value } => {
-                let v = match value {
-                    Some(e) => self.expr(e),
-                    None => self.konst(0),
-                };
-                self.emit(Inst { op: Op::Return, n: 1, a: v, ..Inst::new(Op::Return) });
-            }
+            Stmt::Return { value, .. } => match value {
+                Some(e) => {
+                    let v = self.expr(e);
+                    self.emit(Inst { op: Op::Return, n: 1, a: v, ..Inst::new(Op::Return) });
+                }
+                None => self.emit(Inst::new(Op::Return)),
+            },
             Stmt::Match { scrutinee, arms, .. } => {
                 let x = self.expr(scrutinee);
                 let carried = self.assigned(&arms.iter().map(|a| &a.body).collect::<Vec<_>>());
                 let saved: Vec<u32> = carried.iter().map(|&i| self.env[i].1).collect();
                 let (mut cases, mut regs, mut default) = (Vec::new(), Vec::new(), 0);
-                for arm in arms {
+                // sem `_`, a checagem provou que o match é exaustivo (trit):
+                // o último braço é o que sobra, e vira o default
+                let wild = arms.iter().any(|a| a.pats.iter().any(|p| matches!(p, Pat::Wild)));
+                for (k, arm) in arms.iter().enumerate() {
                     let r = self.branch(Some(&arm.body), &carried, &saved);
-                    if arm.pats.iter().any(|p| matches!(p, Pat::Wild)) {
+                    if arm.pats.iter().any(|p| matches!(p, Pat::Wild)) || (!wild && k + 1 == arms.len()) {
                         default = r; // os literais deste braço caem no default de qualquer jeito
                         continue;
                     }
@@ -392,6 +404,7 @@ impl<'p> L<'p> {
     fn expr(&mut self, e: &'p Expr) -> u32 {
         match e {
             Expr::Num(v) => self.konst(*v),
+            Expr::Bool(b) => self.konst(*b as i64),
             Expr::Var(name, ..) => match self.lookup(name) {
                 Some(i) => self.env[i].1,
                 None => {
@@ -403,7 +416,7 @@ impl<'p> L<'p> {
                 let p = self.element(name, i);
                 self.val(Op::Load, 0, p, 0)
             }
-            Expr::Unary(op, x) => {
+            Expr::Unary(op, x, ..) => {
                 let x = self.expr(x);
                 let k = match op {
                     UnOp::Neg => UnK::Neg,
@@ -411,7 +424,7 @@ impl<'p> L<'p> {
                 };
                 self.val(Op::Un, k as u8, x, 0)
             }
-            Expr::Binary(op @ (BinOp::And | BinOp::Or), a, b) => {
+            Expr::Binary(op @ (BinOp::And | BinOp::Or), a, b, ..) => {
                 // a && b = if a { b ≠ 0 } else { 0 };  a || b = if a { 1 } else { b ≠ 0 }
                 let c = self.expr(a);
                 let parent = self.cur;
@@ -437,7 +450,7 @@ impl<'p> L<'p> {
                 self.emit(Inst { op: Op::If, k: 0, n: 1, res, a: c, b });
                 res
             }
-            Expr::Binary(op, a, b) => {
+            Expr::Binary(op, a, b, ..) => {
                 let (a, b) = (self.expr(a), self.expr(b));
                 let k = match op {
                     BinOp::Add => BinK::Add,
@@ -451,6 +464,9 @@ impl<'p> L<'p> {
                     BinOp::Le => BinK::Le,
                     BinOp::Gt => BinK::Gt,
                     BinOp::Ge => BinK::Ge,
+                    BinOp::Kmin => BinK::Kmin,
+                    BinOp::Kmax => BinK::Kmax,
+                    BinOp::Cmp => BinK::Cmp,
                     BinOp::And | BinOp::Or => unreachable!(),
                 };
                 self.bin(k, a, b)
@@ -482,8 +498,14 @@ impl<'p> L<'p> {
                     "recv_val" => IntrK::RecvVal,
                     _ => {
                         let (a, b) = (self.fids[name.as_str()], self.list(&xs));
+                        let n = xs.len() as u16;
+                        if !self.rets[name.as_str()] {
+                            // sem valor: a checagem garante que é só comando
+                            self.emit(Inst { op: Op::Call, k: 0, n, res: 0, a, b });
+                            return self.konst(0);
+                        }
                         let res = self.vals(1);
-                        self.emit(Inst { op: Op::Call, k: 0, n: xs.len() as u16, res, a, b });
+                        self.emit(Inst { op: Op::Call, k: 0, n, res, a, b });
                         return res;
                     }
                 };

@@ -112,7 +112,7 @@ impl Gen {
                 let slot = self.slot(name);
                 self.line(&format!("    st a1, {}(s11)", -(slot as i64 + 1)));
             }
-            Stmt::If { cond, then, els } => {
+            Stmt::If { cond, then, els, .. } => {
                 let (l_else, l_end) = (self.label(), self.label());
                 self.expr(cond);
                 self.line(&format!("    bz a1, {l_else}"));
@@ -127,7 +127,7 @@ impl Gen {
                 }
                 self.line(&format!("{l_end}:"));
             }
-            Stmt::While { cond, body } => {
+            Stmt::While { cond, body, .. } => {
                 let (l_start, l_end) = (self.label(), self.label());
                 self.line(&format!("{l_start}:"));
                 self.expr(cond);
@@ -136,7 +136,7 @@ impl Gen {
                 self.line(&format!("    j {l_start}"));
                 self.line(&format!("{l_end}:"));
             }
-            Stmt::Return { value } => {
+            Stmt::Return { value, .. } => {
                 match value {
                     Some(e) => self.expr(e),
                     None => self.imm("a1", 0),
@@ -186,15 +186,16 @@ impl Gen {
     fn expr(&mut self, e: &Expr) {
         match e {
             Expr::Num(v) => self.imm("a1", *v),
+            Expr::Bool(b) => self.imm("a1", *b as i64),
             Expr::Var(name, _, _) => {
                 let slot = self.slot(name);
                 self.line(&format!("    ld a1, {}(s11)", -(slot as i64 + 1)));
             }
-            Expr::Unary(UnOp::Neg, x) => {
+            Expr::Unary(UnOp::Neg, x, ..) => {
                 self.expr(x);
                 self.line("    neg a1, a1");
             }
-            Expr::Unary(UnOp::Not, x) => {
+            Expr::Unary(UnOp::Not, x, ..) => {
                 // !x = (x == 0)
                 self.expr(x);
                 let l = self.label();
@@ -204,7 +205,7 @@ impl Gen {
                 self.imm("a1", 1);
                 self.line(&format!("{l}:"));
             }
-            Expr::Binary(op @ (BinOp::And | BinOp::Or), a, b) => {
+            Expr::Binary(op @ (BinOp::And | BinOp::Or), a, b, ..) => {
                 let l_end = self.label();
                 let short = self.label();
                 self.expr(a);
@@ -223,7 +224,7 @@ impl Gen {
                 self.imm("a1", if *op == BinOp::And { 0 } else { 1 });
                 self.line(&format!("{l_end}:"));
             }
-            Expr::Binary(op, a, b) => {
+            Expr::Binary(op, a, b, ..) => {
                 self.expr(a);
                 self.line("    push a1");
                 self.expr(b);
@@ -234,6 +235,9 @@ impl Gen {
                     BinOp::Mul => self.line("    mul a1, t1, a1"),
                     BinOp::Div => self.line("    div a1, t1, a1"),
                     BinOp::Rem => self.line("    rem a1, t1, a1"),
+                    BinOp::Kmin => self.line("    kmin a1, t1, a1"),
+                    BinOp::Kmax => self.line("    kmax a1, t1, a1"),
+                    BinOp::Cmp => self.line("    cmp a1, t1, a1"),
                     _ => {
                         // comparação: cmp devolve o sinal de (t1 − a1)
                         let l = self.label();

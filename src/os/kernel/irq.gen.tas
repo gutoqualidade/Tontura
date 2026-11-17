@@ -114,7 +114,7 @@ fn_irq_disable:
     push lr
     push s11
     mov s11, sp
-    addi sp, sp, -14
+    addi sp, sp, -12
     st a1, -1(s11)
     ld t1, -1(s11)
     li t2, 0
@@ -200,11 +200,11 @@ fn_irq_disable:
 .L_irq_disable_11:
 .L_irq_disable_12:
     la a1, imask_shadow
-    st a1, -13(s11)
-    ld t1, -13(s11)
+    st a1, -5(s11)
+    ld t1, -5(s11)
     ld a1, 0(t1)
-    st a1, -14(s11)
-    ld t1, -14(s11)
+    st a1, -6(s11)
+    ld t1, -6(s11)
     csrw imask, t1
     j .L_irq_disable_4
 .L_irq_disable_3:
